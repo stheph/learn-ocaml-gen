@@ -1,0 +1,83 @@
+(env
+ (dev
+  (flags (:standard -annot)))
+ (release
+  (flags (:standard -annot)))
+  )	 
+
+(executable
+	(name main)
+	(modules main)
+	(libraries
+		gen_background
+		gen_template
+		gen_solution
+		gen_test
+		compiler-libs.common
+	)
+)
+
+(library
+	(name gen_background)
+	(modules Gen_background)
+	(libraries
+		compiler-libs.common
+	)
+)
+
+(library
+	(name gen_template)
+	(modules Gen_template)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name gen_solution)
+	(modules Gen_solution)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name gen_test)
+	(modules Gen_test)
+	(libraries
+		make_sampler
+		typediter
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name make_sampler)
+	(modules Make_sampler)
+	(libraries
+		type_vars
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name type_vars)
+	(modules Type_vars)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name typediter)
+	(modules Typediter)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
