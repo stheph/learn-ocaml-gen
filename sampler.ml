@@ -1,13 +1,35 @@
-(* Functions regarding samplers *)
+(* Functions for creating and invoking samplers *)
 
 exception No_choice
 exception Not_implemented of string
             
 let loc = Location.none
 
-let repr = Btype.repr
+let repr = Ctype.repr
 
-let () = Random.self_init ()
+let (samplers : string list ref) = ref []
+
+(* This is where we'll store all the samplers ast forms *)
+(* We won't print this until the very end *)
+(* given the Typed phase may introduce new ones *)
+let (sampler_fns : Parsetree.value_binding list ref) = ref []
+
+let rec register_sampler str =
+  if not (sampler_exists str) then
+    samplers := str :: !samplers
+
+and sampler_exists str =
+  List.mem str !samplers
+
+let register_sampler_fn fn =
+  sampler_fns := !sampler_fns @ [fn]
+                        
+let () = Random.self_init ();
+  register_sampler "sampler_int";
+  register_sampler "sampler_float";
+  register_sampler "sampler_bool";
+  register_sampler "sampler_char";
+  register_sampler "sampler_string"
 
 let choose l =
   if List.length l = 0
@@ -17,34 +39,72 @@ let choose l =
       choice = Random.int (List.length l)
     in
     List.nth l choice
-    
-
-let (samplers : string list ref) = ref []
-                                       
-let register_sampler sampler =
-  samplers := sampler :: !samplers
-
-(* let get_sampler (t : Types.type_expr) : string =
- *   if List.mem (Sampler.Typed.sampler_name t) !samplers
- *   then List.find (Sampler.Typed.sampler_name t)
- *   else
- *     raise Not_implemented "get_sampler" *)
-    
-(* Return sampler if it exists, otherwise, make it *)
-
-(* Untyped is for creating samplers *)
+               
+(* The untyped version is mainly for producing samplers via type declarations *)
 module Untyped = struct
 
   open Ast_helper
+  open Types
+  open Longident
+
+  let base_types =
+    [
+      Predef.type_int;
+      Predef.type_bool;
+      Predef.type_string
+    ]
+
+  let rec sampler_name type_expr =
+    let ending = sampler_string_of_type type_expr in
+    "sampler_" ^ ending
+  and sampler_string_of_type type_expr =
+    begin match type_expr.desc with
+    | Tconstr (p, ts, _) ->
+       begin match ts with
+       | [] -> Path.name p
+       | x ->
+          let x' = List.map sampler_string_of_type ts in
+          let prepend = String.concat "_" x' in
+          prepend ^ "_" ^ (Path.name p)
+       end
+    | Ttuple  ts ->
+       String.concat "_" (List.map sampler_string_of_type ts)
+    end
+
+  let rec get_sampler fn_sig argtypes =
+    let id_desc_map = List.map (fun x -> (x.id, x.desc)) argtypes in
+    (* Unlike in the untyped version, we're gonna use the id to represent a type var *)
+    let type_vars = List.map Typevars.Typed.collect_vars argtypes in
+    let type_vars = List.sort_uniq compare @@ List.flatten type_vars in
+
+    let rec assign_types type_vars =
+      begin match type_vars with
+      | [] -> []
+      | hd::tl ->
+         (* This time, we'll choose one random type assignment, rather than doing one of each *)
+         let hd' = (hd, choose base_types) in
+         hd' :: (assign_types tl)
+      end
+    in
+
+    let var_map = assign_types type_vars in
+    let instantiated = List.map (Typevars.Typed.instantiate_var var_map) argtypes in
+    let fn_sig = Typevars.Typed.instantiate_var var_map fn_sig in
+    let samplers = List.map sampler_name instantiated in
+    let sampler_expr sampler =
+      let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
+      let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
+      Exp.apply sampler_expr [Nolabel, unit_expr]
+    in
+    let sampler_exprs = List.map (sampler_expr) samplers in
+    let sampler_tuple = Exp.tuple sampler_exprs in
+    let sampler_fun = Exp.fun_ Nolabel None (Pat.construct { txt = Lident "()" ; loc = loc } None) sampler_tuple in
+    (fn_sig, sampler_fun)
+  
   open Ast_iterator
   open Asttypes
   open Longident
-
   open Parsetree
-
-  exception Not_implemented of string
-
-  let loc = Location.none
 
   let base_types =
     [
@@ -118,7 +178,8 @@ module Untyped = struct
           let ctypes_string = sampler_string_of_ctypes ctypes in
           begin match ctypes_string with
           | None -> "sampler_" ^ name
-          | Some ctypes_string' -> "sampler_" ^ ctypes_string' ^ "_" ^ name
+          | Some ctypes_string' ->
+             "sampler_" ^ ctypes_string' ^ "_" ^ name
           end
        end
     | _ -> raise (Not_implemented "sampler_name")
@@ -298,13 +359,16 @@ module Untyped = struct
     let without_vars = List.filter (fun x -> not @@ has_type_variables x) !type_decls in
     let with_var_samplers = List.map generate_sampler_with_type_vars with_vars in
     let without_var_samplers = List.map generate_sampler without_vars in
-    Str.value Recursive (List.flatten @@ with_var_samplers@[without_var_samplers])
-  
+    List.iter register_sampler_fn (List.flatten @@ without_var_samplers :: with_var_samplers)
 end
+                   
 
-(* Typed is more for attempting to retrieve the appropriate samplers *)
+(* The typed version is mostly for invoking samplers created by the untyped version *)
+(* But some samplers may have been missed, so we create those as well *)
+(* For example, any function which takes a tuple *)
+(* f : a' * 'b -> 'c, there will most likely be samplers for instantiations of 'a and 'b *)
+(* but unless 'a * 'b was declared as a type on its own, there is no sampler created *)
 module Typed = struct
-
   open Ast_helper
   open Types
   open Longident
@@ -362,5 +426,41 @@ module Typed = struct
     let sampler_tuple = Exp.tuple sampler_exprs in
     let sampler_fun = Exp.fun_ Nolabel None (Pat.construct { txt = Lident "()" ; loc = loc } None) sampler_tuple in
     (fn_sig, sampler_fun)
+
+  (* Copied from Untyped above *)
+  let rec create_fn args e =
+    let open Parsetree in
+    begin match args with
+    | [] -> e
+    | hd::tl ->
+       let pat = Pat.var ( { txt = hd ; loc = loc} ) in
+       let e' = create_fn tl e in
+       [%expr fun [%p pat] -> [%e e']]
+    end
+
+  and check_samplers (sampler, type_expr) =
+      (* If the sampler doesn't yet exist, we make it *)
+      (* This should only occur in the example above *)
+      if not (sampler_exists sampler) then
+        begin match type_expr.desc with
+        | Ttuple ts ->
+           let sampler_names = List.map sampler_name ts in
+           let sampler_expr sampler =
+             let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
+             let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
+             Exp.apply sampler_expr [Nolabel, unit_expr]
+           in
+           let sampler_tuple = Exp.tuple (List.map sampler_expr sampler_names) in
+           let sampler_fun = create_fn ["()"] sampler_tuple in
+           let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
+           let sampler = Vb.mk sampler_pattern sampler_fun in
+           register_sampler_fn sampler
+        | _ -> raise (Not_implemented "check_samplers :: match desc")
+        end
   
 end
+
+let sampler_functions () =
+  let open Ast_helper in
+  Str.value Recursive !sampler_fns
+

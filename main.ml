@@ -1,30 +1,33 @@
-(* Main function, of course *)
-
-module TestIter = TypedtreeIter.MakeIterator(TypedtreeIter.DefaultIteratorArgument)
-
 let () =
   let _ = Compmisc.init_path false in
   let env = Compmisc.initial_env () in
-  
+
   let src_file = Array.get Sys.argv 1 in
-  (* src_file -> parse_tree : File -> AST *)
+  let dot_index = String.rindex src_file '.' in
+  let dir = String.sub src_file 0 dot_index in
   let parse_tree =
     Pparse.parse_implementation
       Format.std_formatter
-      ~tool_name:"ocamlbuild"
+      ~tool_name:"dune"
       src_file
   in
-  (* parse_tree -> typed_tree : AST -> Typed AST *)
-  let parse_tree = Gen_background.background parse_tree in
-  let _temp_tree = Gen_template.template parse_tree in
-  let _sol_tree = Gen_solution.solution parse_tree in
-
-  (* We do the transformations on the original tree to strip extensions *)
-  (* but we leave the background info for typing *)
-  let parse_tree_clean = Gen_background.leave_background parse_tree in
-  let typing_tree = Gen_solution.solution parse_tree_clean in
+  let typing_tree = Preliminaries.strip parse_tree in
+  let typing_tree = Exercise.strip typing_tree in
+  (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure typing_tree; *)
   let (typed_tree,_,_) = Typemod.type_structure env typing_tree Location.none in
-  (* Format.fprintf (Format.std_formatter) "@[%a@]@." (Pprintast.structure) temp_tree;
-   * Format.fprintf (Format.std_formatter) "@[%a@]@." (Pprintast.structure) sol_tree; *)
-  Gen_test.test parse_tree_clean typed_tree;
+  let _ =
+    if not (Sys.file_exists dir) then
+      Unix.mkdir dir 0o777
+  in
+  (* let pre_ex_tree = Preliminaries.run parse_tree in *)
+   (* * let pre_ex_tree = Preliminaries.Prelude.run parse_tree in *\) *)
+  (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure pre_ex_tree; *)
+  let prelim_tree = Preliminaries.run parse_tree in
+  (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure prelim_tree; *)
+  Preliminaries.Meta.out_file dir;
+  Preliminaries.Prelude.out_file dir;
+  Preliminaries.Prepare.out_file dir;
+  Exercise.Template.out_file prelim_tree dir;
+  Exercise.Solution.out_file prelim_tree dir;
+  Test.out_file typing_tree typed_tree dir;
   ()

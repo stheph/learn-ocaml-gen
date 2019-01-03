@@ -14,18 +14,7 @@ type function_info =
     argcount : int;
   }
 
-let rec print_fn_info ppf fn_info =
-  let { name = name ; fn_sig = fn_sig ; argtypes = argtypes ; argcount = argcount } = fn_info in
-  Format.fprintf ppf
-    "{@[<v 0>\n\tname : %s[%d];\n\tsig : %a;\n\targtypes : %a\n\t@]}@."
-    name
-    argcount
-    print_type
-    fn_sig
-    print_type_list
-    argtypes
-    
-and print_type ppf tp =
+let rec print_type ppf tp =
   Format.fprintf ppf
     "@[<h 0>%a@]"
     Printtyp.type_scheme
@@ -49,28 +38,6 @@ and print_type_list' ppf tps =
                 tl
   end
 
-let print_argtypes tps =
-  print_type_list (Format.std_formatter) tps
-    
-let print_info info = print_fn_info (Format.std_formatter) info
-
-let print_map str info =
-  Format.fprintf (Format.std_formatter)
-    "@[<v 0>{%s = %a}]@."
-    str
-    print_fn_info
-    info
-
-let print_map_simple str info =
-  Format.fprintf (Format.std_formatter)
-    "@[<h 0>%s[%d] : %a; %a@]@."
-    info.name
-    info.argcount
-    print_type
-    info.fn_sig
-    print_type_list
-    info.argtypes
-                
 (* Map from function names to function_info *)
 module FnMap = Map.Make(String)
 
@@ -110,33 +77,6 @@ end
 
 module FnInfoIter = TypedtreeIter.MakeIterator(CollectFnInfo)
 
-(* let exercise_count = ref 0
- * 
- * let get_exercise_count () =
- *   let ex_cnt = !exercise_count in
- *   exercise_count := !exercise_count + 1;
- *   ex_cnt
- *                                               
- * let rec gen_test { name ; fn_sig ; argtypes ; argcount } =
- *   (\* exercise count *\)
- *   let ex_cnt = get_exercise_count () in
- *   if argcount <= 4 then
- *     let testing_fn = Format.sprintf "test_function_%d_against_solution" argcount in
- *     let type_str = gen_test_ty fn_sig in
- *     Format.sprintf
- *       "let exercise_%d =\n\t%s\n\t\t%s\n\t\t\"%s\""
- *       ex_cnt
- *       testing_fn
- *       type_str
- *       name
- *   else raise Too_many_args
- *                                               
- * and gen_test_ty fn_sig =
- *   let sig_str = print_type (Format.str_formatter) fn_sig;
- *                 Format.flush_str_formatter ()
- *   in
- *   Format.sprintf "[%%ty: %s]" sig_str *)
-                                                          
-let iter typed_tree =
+let run typed_tree =
   FnInfoIter.iter_structure typed_tree;
   !fn_map

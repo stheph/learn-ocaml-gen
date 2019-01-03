@@ -1,53 +1,45 @@
-(env
- (dev
-  (flags (:standard -annot)))
- (release
-  (flags (:standard -annot)))
-  )	 
-
 (executable
 	(name main)
-	(modules main)
+	(modules Main)
 	(libraries
-		gen_background
-		gen_template
-		gen_solution
-		gen_test
+		preliminaries
+		exercise
+		test
 		compiler-libs.common
+		unix
 	)
 )
 
 (library
-	(name gen_background)
-	(modules Gen_background)
+	(name preliminaries)
+	(modules
+		Preliminaries
+	)
 	(libraries
+		yojson
+		ppx_deriving_yojson.runtime
 		compiler-libs.common
 	)
+	(preprocess (pps ppx_deriving_yojson))
 )
 
 (library
-	(name gen_template)
-	(modules Gen_template)
-	(libraries
-		compiler-libs.common
+	(name exercise)
+	(modules
+		Exercise
 	)
-	(preprocess (pps ppxlib.metaquot))
-)
-
-(library
-	(name gen_solution)
-	(modules Gen_solution)
 	(libraries
-		compiler-libs.common
+		compiler-libs.common	
 	)
 	(preprocess (pps ppxlib.metaquot))
 )
 
 (library
-	(name gen_test)
-	(modules Gen_test)
+	(name test)
+	(modules Test)
 	(libraries
-		make_sampler
+		sampler
+		exercise
 		typediter
 		compiler-libs.common
 	)
@@ -55,18 +47,18 @@
 )
 
 (library
-	(name make_sampler)
-	(modules Make_sampler)
+	(name sampler)
+	(modules Sampler)
 	(libraries
-		type_vars
+		typevars
 		compiler-libs.common
 	)
 	(preprocess (pps ppxlib.metaquot))
 )
 
 (library
-	(name type_vars)
-	(modules Type_vars)
+	(name typevars)
+	(modules Typevars)
 	(libraries
 		compiler-libs.common
 	)

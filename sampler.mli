@@ -1,18 +1,19 @@
-module Untyped : sig
+exception No_choice
+exception Not_implemented of string
 
-  open Ast_helper
-  open Ast_iterator
-  open Asttypes
-  open Longident
+(* TODO Do we need to expose choose and sampler? *)
+val choose : 'a list -> 'a
+
+val samplers : string list ref
+
+module Untyped : sig
 
   open Parsetree
 
-  exception Not_implemented of string
-  
-  val run : structure -> structure_item
+  val run : structure -> unit
                            
 end
-
+                   
 module Typed : sig
 
   open Ast_helper
@@ -22,3 +23,5 @@ module Typed : sig
   val get_sampler : type_expr -> type_expr list -> type_expr * Parsetree.expression
                                     
 end
+
+val sampler_functions : unit -> Parsetree.structure_item
