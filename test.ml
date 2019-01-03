@@ -68,7 +68,7 @@ let process_fun (fn_info : Typediter.function_info) =
   let sampler_const = (Labelled "sampler", sampler) in
   let gen_const = (Labelled "gen", Exp.constant (Pconst_integer ("10", None))) in
   let type_sig_str = Format.asprintf "[%%ty : %a]" Typediter.print_type type_sig in
-  let type_constr = (Nolabel, Exp.constant (Pconst_string (type_sig_str, None))) in
+  let type_constr = (Nolabel, Exp.construct (make_lident type_sig_str) None) in
 
   let tester_fn_name =
     Format.sprintf "test_function_%d_against_solution" fn_info.argcount in

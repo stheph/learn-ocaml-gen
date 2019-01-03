@@ -68,11 +68,11 @@ module Meta = struct
 
   type meta_data =
     {
-      learnocaml_version : int;
+      learnocaml_version : string;
       kind : string option;
       stars : int option;
       title : string option;
-      identifier : int;
+      identifier : string;
       authors : string list option;
       focus : string list option;
       requirements : string list option;
@@ -83,11 +83,11 @@ module Meta = struct
 
   let default =
     {
-      learnocaml_version = 2;
+      learnocaml_version = "2";
       kind = Some "exercise";
       stars = Some 3;
       title = Some "Exercise";
-      identifier = 0;
+      identifier = "0";
       authors = Some [];
       focus = Some [];
       requirements = Some [];
@@ -186,7 +186,7 @@ module Meta = struct
            let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
              = value_binding.pvb_expr
            in
-           out_meta := {!out_meta with learnocaml_version = int_of_string value }
+           out_meta := {!out_meta with learnocaml_version = value }
          with Match_failure _ -> raise (Bad_value_for_metadata "learnocaml_version")
        end
     | { ppat_desc = Ppat_var { txt = "kind" } ; _ } ->
@@ -222,7 +222,7 @@ module Meta = struct
            let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
              = value_binding.pvb_expr
            in
-           out_meta := {!out_meta with identifier = int_of_string value }
+           out_meta := {!out_meta with identifier = value }
          with Match_failure _ -> raise (Bad_value_for_metadata "identifier")
        end
     | { ppat_desc = Ppat_var { txt = "authors" } ; _ } ->

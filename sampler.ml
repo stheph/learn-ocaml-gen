@@ -25,11 +25,11 @@ let register_sampler_fn fn =
   sampler_fns := !sampler_fns @ [fn]
                         
 let () = Random.self_init ();
-  register_sampler "sampler_int";
-  register_sampler "sampler_float";
-  register_sampler "sampler_bool";
-  register_sampler "sampler_char";
-  register_sampler "sampler_string"
+  register_sampler "sample_int";
+  register_sampler "sample_float";
+  register_sampler "sample_bool";
+  register_sampler "sample_char";
+  register_sampler "sample_string"
 
 let choose l =
   if List.length l = 0
@@ -56,7 +56,7 @@ module Untyped = struct
 
   let rec sampler_name type_expr =
     let ending = sampler_string_of_type type_expr in
-    "sampler_" ^ ending
+    "sample_" ^ ending
   and sampler_string_of_type type_expr =
     begin match type_expr.desc with
     | Tconstr (p, ts, _) ->
@@ -173,13 +173,13 @@ module Untyped = struct
     begin match ctype.ptyp_desc with
     | Ptyp_constr ( { txt = Lident name ; _ }, ctypes ) ->
        begin match ctypes with
-       | [] -> "sampler_" ^ name
+       | [] -> "sample_" ^ name
        | _ ->
           let ctypes_string = sampler_string_of_ctypes ctypes in
           begin match ctypes_string with
-          | None -> "sampler_" ^ name
+          | None -> "sample_" ^ name
           | Some ctypes_string' ->
-             "sampler_" ^ ctypes_string' ^ "_" ^ name
+             "sample_" ^ ctypes_string' ^ "_" ^ name
           end
        end
     | _ -> raise (Not_implemented "sampler_name")
@@ -243,8 +243,8 @@ module Untyped = struct
 
        let sampler_pattern_string param_string =
          begin match param_string with
-         | None -> "sampler_" ^ name
-         | Some param_string' -> "sampler_" ^ param_string' ^ "_" ^ name
+         | None -> "sample_" ^ name
+         | Some param_string' -> "sample_" ^ param_string' ^ "_" ^ name
          end
        in
        let sampler_pattern = Pat.var { txt = sampler_pattern_string params_string ; loc = loc } in
@@ -259,13 +259,13 @@ module Untyped = struct
        let generator_expr =
          List.fold_right compose_let gen_exprs apply_to_unit in
        let generator_fn = create_fn ["()"] generator_expr in
+       register_sampler @@ sampler_pattern_string params_string;
        Vb.mk sampler_pattern generator_fn
     | Ptype_abstract ->
        begin match manifest with
        | None -> raise (Not_implemented "generate_sampler :: match manifest")
        | Some ctype ->
-          let sampler_name' = "sampler_" ^ name in
-          samplers := sampler_name' :: !samplers;
+          let sampler_name' = "sample_" ^ name in
           let sampler_pattern = Pat.var { txt = sampler_name' ; loc = loc } in
           
           let sampler_application sampler =
@@ -277,11 +277,13 @@ module Untyped = struct
           | Ptyp_constr ({ txt = type_name ; _ } ,_) ->
              let ctype_sampler = sampler_application @@ sampler_name ctype in
              let sampler_fn = create_fn ["()"] ctype_sampler in
+             register_sampler sampler_name';
              Vb.mk sampler_pattern sampler_fn
           | Ptyp_tuple ctypes ->
              let ctypes_samplers = List.map sampler_application @@ List.map sampler_name ctypes in
              let samplers_tuple = Exp.tuple ctypes_samplers in
              let sampler_fn = create_fn ["()"] samplers_tuple in
+             register_sampler sampler_name';
              Vb.mk sampler_pattern sampler_fn
           | _ ->
              raise (Not_implemented
@@ -382,7 +384,7 @@ module Typed = struct
 
   let rec sampler_name type_expr =
     let ending = sampler_string_of_type type_expr in
-    "sampler_" ^ ending
+    "sample_" ^ ending
   and sampler_string_of_type type_expr =
     begin match type_expr.desc with
     | Tconstr (p, ts, _) ->
@@ -417,6 +419,11 @@ module Typed = struct
     let instantiated = List.map (Typevars.Typed.instantiate_var var_map) argtypes in
     let fn_sig = Typevars.Typed.instantiate_var var_map fn_sig in
     let samplers = List.map sampler_name instantiated in
+    
+    (* Check that all the samplers we wanna use exist *)
+    (* and create the ones that don't *)
+    List.iter (check_samplers) (List.combine samplers argtypes);
+    
     let sampler_expr sampler =
       let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
       let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
@@ -428,7 +435,7 @@ module Typed = struct
     (fn_sig, sampler_fun)
 
   (* Copied from Untyped above *)
-  let rec create_fn args e =
+  and create_fn args e =
     let open Parsetree in
     begin match args with
     | [] -> e
@@ -439,24 +446,25 @@ module Typed = struct
     end
 
   and check_samplers (sampler, type_expr) =
-      (* If the sampler doesn't yet exist, we make it *)
-      (* This should only occur in the example above *)
-      if not (sampler_exists sampler) then
-        begin match type_expr.desc with
-        | Ttuple ts ->
-           let sampler_names = List.map sampler_name ts in
-           let sampler_expr sampler =
-             let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
-             let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
-             Exp.apply sampler_expr [Nolabel, unit_expr]
-           in
-           let sampler_tuple = Exp.tuple (List.map sampler_expr sampler_names) in
-           let sampler_fun = create_fn ["()"] sampler_tuple in
-           let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
-           let sampler = Vb.mk sampler_pattern sampler_fun in
-           register_sampler_fn sampler
-        | _ -> raise (Not_implemented "check_samplers :: match desc")
-        end
+    (* If the sampler doesn't yet exist, we make it *)
+    (* This should only occur in the example above *)
+    let type_expr = repr type_expr in
+    if not (sampler_exists sampler) then
+      begin match type_expr.desc with
+      | Ttuple ts ->
+         let sampler_names = List.map sampler_name ts in
+         let sampler_expr sampler =
+           let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
+           let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
+           Exp.apply sampler_expr [Nolabel, unit_expr]
+         in
+         let sampler_tuple = Exp.tuple (List.map sampler_expr sampler_names) in
+         let sampler_fun = create_fn ["()"] sampler_tuple in
+         let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
+         let sampler = Vb.mk sampler_pattern sampler_fun in
+         register_sampler_fn sampler
+      | _ -> raise (Not_implemented ("check_samplers :: match desc :: " ^ sampler))
+      end
   
 end
 
