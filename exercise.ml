@@ -19,7 +19,7 @@ module Template = struct
     | { pexp_desc = Pexp_constraint (e, _) ; _ } ->
        expr_mapper mapper e
     | [%expr [%erase [%e? e]]] ->
-       [%expr "-YOUR CODE HERE-"]
+       [%expr raise Not_implemented]
     | expr' -> default_mapper.expr mapper expr
     end
 

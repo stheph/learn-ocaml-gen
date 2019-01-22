@@ -73,7 +73,6 @@ module Untyped = struct
 
   let rec get_sampler fn_sig argtypes =
     let id_desc_map = List.map (fun x -> (x.id, x.desc)) argtypes in
-    (* Unlike in the untyped version, we're gonna use the id to represent a type var *)
     let type_vars = List.map Typevars.Typed.collect_vars argtypes in
     let type_vars = List.sort_uniq compare @@ List.flatten type_vars in
 
@@ -251,7 +250,7 @@ module Untyped = struct
        let constr_generators = List.map constructor_function constrs in
        let (gen_exprs, gen_list) = List.split constr_generators in
 
-       let choose_expr = Exp.ident { txt = Lident "choose" ; loc = loc } in
+       let choose_expr = Exp.ident { txt = Lident "sample_alternatively" ; loc = loc } in
        let unit_expr = Exp.ident { txt = Lident "()" ; loc = loc } in
        let apply_choose_expr = Exp.apply choose_expr [Nolabel, ast_list_of_strings gen_list] in
        let apply_to_unit = Exp.apply apply_choose_expr [Nolabel, unit_expr] in
@@ -382,11 +381,150 @@ module Typed = struct
       Predef.type_string
     ]
 
+  (* Borrowed from Printtyp.ml *)
+  (* Print a type expression *)
+
+  let names = ref ([] : (type_expr * string) list)
+  let name_counter = ref 0
+  let named_vars = ref ([] : string list)
+
+  let reset_names () = names := []; name_counter := 0; named_vars := []
+  let add_named_var ty =
+    match ty.desc with
+      Tvar (Some name) | Tunivar (Some name) ->
+                          if List.mem name !named_vars then () else
+                            named_vars := name :: !named_vars
+      | _ -> ()
+
+  let rec new_name () =
+    let name =
+      if !name_counter < 26
+      then String.make 1 (Char.chr(97 + !name_counter))
+      else String.make 1 (Char.chr(97 + !name_counter mod 26)) ^
+             string_of_int(!name_counter / 26) in
+    incr name_counter;
+    if List.mem name !named_vars
+       || List.exists (fun (_, name') -> name = name') !names
+    then new_name ()
+    else name
+
+  let name_of_type t =
+    (* We've already been through repr at this stage, so t is our representative
+     of the union-find class. *)
+    try List.assq t !names with Not_found ->
+                                 let name =
+                                   match t.desc with
+                                     Tvar (Some name) | Tunivar (Some name) ->
+                                                         (* Some part of the type we've already printed has assigned another
+                                                          * unification variable to that name. We want to keep the name, so try
+                                                          * adding a number until we find a name that's not taken. *)
+                                                         let current_name = ref name in
+                                                         let i = ref 0 in
+                                                         while List.exists (fun (_, name') -> !current_name = name') !names do
+                                                           current_name := name ^ (string_of_int !i);
+                                                           i := !i + 1;
+                                                         done;
+                                                         !current_name
+                                     | _ ->
+                                        (* No name available, create a new one *)
+                                        new_name ()
+                                 in
+                                 (* Exception for type declarations *)
+                                 if name <> "_" then names := (t, name) :: !names;
+                                 name
+
+  let check_name_of_type t = ignore(name_of_type t)
+
+  let remove_names tyl =
+    let tyl = List.map repr tyl in
+    names := List.filter (fun (ty,_) -> not (List.memq ty tyl)) !names
+
+  (* End *)
+  let rec print_type_expr ppf expr =
+    let {id = id; desc = tdesc} as expr= Btype.repr expr in
+    begin match tdesc with
+    | Tvar so ->
+       let str = name_of_type expr 
+       (* begin match so with
+        * | Some s-> s
+        * | None -> "-NONE-"
+        * end *)
+       in Format.fprintf ppf
+            "Tvar(%s)[%d]" str id
+    | Tarrow (_, t1, t2, _) ->
+       Format.fprintf ppf
+         "Tarrow (_, %a, %a, _)[%d]"
+         print_type_expr t1
+         print_type_expr t2
+         id
+    | Ttuple ts ->
+       Format.fprintf ppf
+         "Ttuple(%a)[%d]"
+         print_type_expr_list ts
+         id
+    | Tconstr (p, ts, _) ->
+       Format.fprintf ppf
+         "Tconstr(%s, %a, _)[%d]"
+         (Printtyp.string_of_path p)
+         print_type_expr_list ts
+         id
+    | Tobject (t, pteor) ->
+       begin match !pteor with
+       | Some (p, ts) ->
+          Format.fprintf ppf
+            "Tobject(%a, (%s, %a))[%d]"
+            print_type_expr t
+            (Printtyp.string_of_path p)
+            print_type_expr_list ts
+            id
+       | None ->
+          Format.fprintf ppf
+            "Tobject(%a, -NONE-)[%d]"
+            print_type_expr t
+            id
+       end
+    | Tfield (lbl, _, t1, t2) ->
+       Format.fprintf ppf
+         "Tfield(%s, _, %a, %a)[%d]"
+         lbl
+         print_type_expr t1
+         print_type_expr t2
+         id
+    | Tnil -> Format.fprintf ppf "Tnil[%d]" id
+    | Tlink t ->
+       (* print_type_expr ppf t *)
+       Format.fprintf ppf
+         "Tlink(%a)[%d]"
+         print_type_expr t
+         id
+    | _ -> Format.fprintf ppf "[unsupported type_desc]"
+    end
+
+  and print_type_expr_list ppf l =
+    Format.fprintf ppf "[%a]" print_type_expr_list' l
+                   
+  and print_type_expr_list' ppf l =
+    begin match l with
+    | [] -> Format.fprintf ppf ""
+    | hd::tl ->
+       Format.fprintf ppf
+         "%a, %a"
+         print_type_expr hd
+         print_type_expr_list' tl
+    end
+
+      
   let rec sampler_name type_expr =
     let ending = sampler_string_of_type type_expr in
     "sample_" ^ ending
   and sampler_string_of_type type_expr =
+    print_type_expr (Format.std_formatter) type_expr;
     begin match type_expr.desc with
+      | Tvar s ->
+        begin match s with
+          | None -> ""
+          | Some s' -> s'
+        end
     | Tconstr (p, ts, _) ->
        begin match ts with
        | [] -> Path.name p
@@ -397,6 +535,10 @@ module Typed = struct
        end
     | Ttuple  ts ->
        String.concat "_" (List.map sampler_string_of_type ts)
+    | Tarrow (_, t1, t2, _) ->
+      (sampler_string_of_type t1) ^ "_arrow_" ^ (sampler_string_of_type t2)
+    | _ -> "ERROR"
+       
     end
 
   let rec get_sampler fn_sig argtypes =
@@ -418,7 +560,9 @@ module Typed = struct
     let var_map = assign_types type_vars in
     let instantiated = List.map (Typevars.Typed.instantiate_var var_map) argtypes in
     let fn_sig = Typevars.Typed.instantiate_var var_map fn_sig in
+    let _ = Format.fprintf (Format.std_formatter) "fn_sig:%a\n" Printtyp.type_expr fn_sig in
     let samplers = List.map sampler_name instantiated in
+    let _ = List.iter (fun x -> print_string @@ x ^ "\n") samplers in
     
     (* Check that all the samplers we wanna use exist *)
     (* and create the ones that don't *)
@@ -463,6 +607,30 @@ module Typed = struct
          let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
          let sampler = Vb.mk sampler_pattern sampler_fun in
          register_sampler_fn sampler
+      | Tarrow (_, t1, t2, _) ->
+        let sampler_body =
+          Exp.apply
+            (Exp.ident { txt = Lident "raise" ; loc = loc})
+            [Nolabel,
+             Exp.construct { txt = Lident "Not_implemented" ; loc = loc} None]
+        in
+         let sampler_fun = create_fn ["()"] sampler_body in
+         let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
+         let sampler = Vb.mk sampler_pattern sampler_fun in
+         register_sampler_fn sampler
+      | Tconstr (Path.Pident t, ts, _) ->
+         begin match Ident.name t with
+         | "list" ->
+            let list_sampler = Exp.ident { txt = Lident "sample_list" ; loc = loc } in
+            let sample_from = Exp.ident { txt = Lident (sampler_name @@ List.hd ts) ; loc = loc } in
+            let sampler_body = Exp.apply list_sampler [Nolabel, sample_from] in
+            let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
+            let sampler_body' = Exp.apply sampler_body [Nolabel, unit_expr] in
+            let sampler_fun = create_fn ["()"] sampler_body in
+            let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
+            let sampler = Vb.mk sampler_pattern sampler_fun in
+            register_sampler_fn sampler
+         end
       | _ -> raise (Not_implemented ("check_samplers :: match desc :: " ^ sampler))
       end
   

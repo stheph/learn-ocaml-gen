@@ -8,6 +8,8 @@ open Asttypes
 open Parsetree
 
 exception Not_implemented of string * string
+
+let loc = Location.none
        
 let rec general_structure_mapper ext acc strip mapper structure =
   (* print_string (Printf.sprintf "Running %s (%s) mapper\n" ext (string_of_bool strip));  *)
@@ -119,7 +121,7 @@ module Meta = struct
   (* but I've opted to write it in a more general form *)
   exception List_conversion_failure
 
-  type might_be =
+  type  might_be =
     | Int : int -> might_be
     | String : string -> might_be
     | Char : char ->  might_be
@@ -295,6 +297,7 @@ end
 
 module Prelude = struct
   let (out : structure ref) = ref []
+  let _ = out := ([%stri exception Not_implemented]) :: !out
 
   let mapper = general_mapper "prelude" out
   let run tree =

@@ -20,7 +20,7 @@ let opens =
 
 let exns =
   [
-    [%stri exception No_choice]
+    [%stri exception No_choice]; [%stri exception Not_implemented]
   ]
 
 (* Need to include this function to randomly select an element in a list *)
@@ -127,7 +127,7 @@ let out_file parse_tree typed_tree dir =
   fn_infos := List.filter (fun (x : Typediter.function_info) -> List.mem x.name !Exercise.Solution.exercises) !fn_infos;
   output_file := !output_file @ opens;
   output_file := !output_file @ exns;
-  output_file := !output_file @ choose_fn;
+  (* output_file := !output_file @ choose_fn; *)
   Sampler.Untyped.run parse_tree;
   output_file := !output_file @ [Sampler.sampler_functions ()];
   output_file := !output_file @ List.map (process_fun) !fn_infos;
