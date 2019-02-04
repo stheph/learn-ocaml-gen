@@ -1,0 +1,18 @@
+(executable
+	(name main)
+	(modules Main)
+	(libraries
+		compiler-libs.common
+		sampler
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name sampler)
+	(modules Sampler)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
