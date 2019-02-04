@@ -221,8 +221,8 @@ In the second case, restricting the size of recursive types. In the tree example
   let rec sample_int_tree ?(size = 10) () =
       let tree () =
           Tree
-          (sample_int_tree ~size:9 (),
-          sample_int_tree ~size:9 ())
+          (sample_int_tree ~size:(size - 1) (),
+          sample_int_tree ~size:(size - 1) ())
       in
       let leaf () = Leaf (sample_int ()) i
       if size = 0

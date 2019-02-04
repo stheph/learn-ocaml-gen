@@ -17,12 +17,51 @@ let make_function name body =
   let pat = Pat.var { txt = name ; loc } in
   [%expr fun [%p pat] -> [%e body]]
 
+(* Takes a list of strings, and converts it to a list in OCaml syntax *)
+let rec ast_list_of_strings l =
+  begin match l with
+  | [] -> Exp.construct { txt = Lident "[]" ; loc = loc  } None
+  | hd :: tl ->
+     let hd_expr = Exp.ident { txt = Lident hd ; loc = loc } in
+     let tl_expr = ast_list_of_strings tl in
+     let tup = Exp.tuple [hd_expr;tl_expr] in
+     Exp.construct { txt = Lident "::" ; loc = loc } (Some tup)
+  end
+    
+let strip_apos str =
+  if String.contains str '\''
+  then
+    String.concat "" @@ String.split_on_char '\'' str
+  else
+    str
+
 (* TODO I'd like a store for valid samplers *)
 (* that we check against *)
-let get_sampler name = "sample_" ^ name
+let get_sampler name = "sample_" ^ (strip_apos name)
 let get_sampler_by_ctype ctype =
   get_sampler (Format.asprintf "%a" Pprintast.core_type ctype)
 
+let rec call_sampler ctype =
+  begin match ctype.ptyp_desc with
+  | Ptyp_var name ->
+     exp_ident @@ "sample_" ^ name
+  | Ptyp_tuple ctypes ->
+     let samplers = List.map call_sampler ctypes in
+     Exp.tuple samplers
+  | Ptyp_constr ({ txt = Lident name ; _ }, ctypes) ->
+     let sampler = "sample_" ^ name in
+     let samplers = List.map call_sampler ctypes in
+     let args =
+       begin match samplers with
+       | [] -> None
+       | [x] -> Some x
+       | l -> Some (Exp.tuple l)
+       end
+     in
+     Exp.apply (Exp.construct (ident sampler) args) [Nolabel, exp_ident "()"]
+  | _ -> raise Unsupported_operation
+  end
+    
 let generate_sampler type_decl =
   let { ptype_name = { txt = name ; _ }
       ; ptype_params
@@ -80,9 +119,52 @@ let generate_sampler type_decl =
      | _ -> raise Unsupported_operation
      end
   | Ptype_variant constructors, None ->
-  (* type t = A | B | C | ... *)
+     (* type t = A | B | C | ... *)
+     let constr_function_names =
+       List.map
+         (fun ({ pcd_name = { txt = constr_name ; _} ; _ }) -> "construct_" ^ constr_name)
+         constructors
+     in
+     (* Converts a constructor C into a function *)
+     (* let construct_C = C (<appropriate samplers>) *)
+     let rec constr_functions constrs expr =
+       begin match constrs with
+       | [] -> expr
+       | hd::tl ->
+          let body = constr_functions tl expr in
+          let { pcd_name = { txt = constr_name ; _ } ; pcd_args ; _ } = hd in
+          let pat = Pat.var ({ txt = "construct_" ^ constr_name ; loc }) in
+          let expr =
+            begin match pcd_args with
+            | Pcstr_tuple ctypes ->
+               let samplers = List.map call_sampler ctypes in
+               let args =
+                 begin match samplers with
+                 | [] -> None
+                 | [x] -> Some x
+                 | l -> Some (Exp.tuple l)
+                 end
+               in
+               Exp.construct (ident constr_name) args
+            | _ -> raise Unsupported_operation
+            end
+          in
+          [%expr let [%p pat] = [%e expr] in [%e body]]
+       end
+     in
+     let body =
+       Exp.apply
+         (Exp.apply
+            (exp_ident "sample_alternatively")
+            [Nolabel, ast_list_of_strings constr_function_names])
+         [Nolabel, exp_ident "()"]
+     in
+     let expr = constr_functions constructors body in
+     Vb.mk sampler_pattern (sampler_params [%expr fun () -> [%e expr]])
   | Ptype_record labels, None ->
-  (* type t = { l1 : T1 ; l2 : T2, ... } *)
+     (* type t = { l1 : T1 ; l2 : T2, ... } *)
+     (* TODO *)
+     Vb.mk sampler_pattern (sampler_params [%expr fun () -> ()])
   | _ -> raise Unsupported_operation
   end
 
