@@ -14,6 +14,6 @@ ppx_lib
 yojson
 
 In the project folder, run
-  dune exec --profile release ./main.exe <path-to-file>
+    dune exec --profile release ./main.exe <path-to-file>
 to generate an exercise folder for the annotated solution file located at <path-to-file>
 
