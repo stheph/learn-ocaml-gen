@@ -75,6 +75,7 @@ module Meta = struct
       stars : int option;
       title : string option;
       identifier : string;
+      author : (string * string) option;
       authors : (string * string) list option;
       focus : string list option;
       requirements : string list option;
@@ -90,7 +91,8 @@ module Meta = struct
       stars = Some 3;
       title = Some "Exercise";
       identifier = "0";
-      authors = Some [];
+      author = None;
+      authors = None;
       focus = Some [];
       requirements = Some [];
       forward_exercises = Some [];
@@ -132,19 +134,13 @@ module Meta = struct
 
   let rec string_of_ast expr =
     begin match expr.pexp_desc with
-    | Pexp_constant const -> string_of_ast_const const
-    | _ -> raise String_conversion_failure
-    end
-
-  and string_of_ast_const const =
-    begin match const with
-    | Pconst_string (str, _) -> str
+    | Pexp_constant (Pconst_string (str, _)) -> str
     | _ -> raise String_conversion_failure
     end
 
   let string_list_of_ast l =
     try
-      List.map (fun ({ pexp_desc = Pexp_constant const }) -> string_of_ast_const const) l
+      List.map string_of_ast l
     with e ->
           begin match e with
           | String_conversion_failure -> raise String_conversion_failure
@@ -216,6 +212,15 @@ module Meta = struct
            in
            out_meta := {!out_meta with identifier = value }
          with Match_failure _ -> raise (Bad_value_for_metadata "identifier")
+       end
+    | { ppat_desc = Ppat_var { txt = "author" } ; _ } ->
+       begin
+         try
+           let expr = value_binding.pvb_expr in
+           let tup = string_tuple_of_ast expr in
+           out_meta := {!out_meta with author = Some tup }
+                         (* TODO Error handling that reports errors in authors list *)
+         with Match_failure _ -> raise (Bad_value_for_metadata "author")
        end
     | { ppat_desc = Ppat_var { txt = "authors" } ; _ } ->
        begin
