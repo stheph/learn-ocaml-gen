@@ -75,7 +75,7 @@ module Meta = struct
       stars : int option;
       title : string option;
       identifier : string;
-      authors : string list option;
+      authors : (string * string) list option;
       focus : string list option;
       requirements : string list option;
       forward_exercises : string list option;
@@ -119,66 +119,56 @@ module Meta = struct
   (* Turns an ast branch that represents a list into an ocaml list *)
   (* Should only really be used for lists of string literals for meta data *)
   (* but I've opted to write it in a more general form *)
+  exception String_conversion_failure
   exception List_conversion_failure
+  exception Tuple_conversion_failure
 
-  type  might_be =
-    | Int : int -> might_be
-    | String : string -> might_be
-    | Char : char ->  might_be
-    | Float : float -> might_be
-              
   let rec list_of_ast expr =
-    let l = list_of_ast' expr in
-    (* Check if all the elements are of the same type *)
-    (* Should definitely *not* be using exceptions this way *)
-    if List.for_all
-         (fun x ->
-           try let Pconst_integer _ = x in true
-           with Match_failure _ -> false)
-         l
-    then
-      List.map (fun x -> let Pconst_integer (value,_) = x in Int (int_of_string value)) l
-    else if List.for_all
-         (fun x ->
-           try let Pconst_string _ = x in true
-           with Match_failure _ -> false)
-         l
-    then
-      List.map (fun x -> let Pconst_string (value,_) = x in String value) l
-    else if List.for_all
-         (fun x ->
-           try let Pconst_float _ = x in true
-           with Match_failure _ -> false)
-         l
-    then
-      List.map (fun x -> let Pconst_float (value,_) = x in Float (float_of_string value)) l
-    else if List.for_all
-         (fun x ->
-           try let Pconst_char _ = x in true
-           with Match_failure _ -> false)
-         l
-    then
-      List.map (fun x -> let Pconst_char value = x in Char value) l
-    else
-      raise List_conversion_failure
-            
-  and list_of_ast' expr =
+    begin match expr with
+    | [%expr []] -> []
+    | [%expr [%e? hd] :: [%e? tl]] ->
+       hd :: list_of_ast tl
+    end
+
+  let rec string_of_ast expr =
     begin match expr.pexp_desc with
-    (* nil *)
-    | Pexp_construct ({ txt = Lident "[]" ; _ } , None) -> []
-    (* cons *)
-    | Pexp_construct ({ txt = Lident "::" ; _ } ,
-                      Some { pexp_desc =
-                               Pexp_tuple [{ pexp_desc = Pexp_constant left ; _ };right] ;  _ } ) ->
-       left :: list_of_ast' right
-    | _ -> raise List_conversion_failure
+    | Pexp_constant const -> string_of_ast_const const
+    | _ -> raise String_conversion_failure
+    end
+
+  and string_of_ast_const const =
+    begin match const with
+    | Pconst_string (str, _) -> str
+    | _ -> raise String_conversion_failure
     end
 
   let string_list_of_ast l =
-    List.map (fun (String x) -> x) l
-     
+    try
+      List.map (fun ({ pexp_desc = Pexp_constant const }) -> string_of_ast_const const) l
+    with e ->
+          begin match e with
+          | String_conversion_failure -> raise String_conversion_failure
+          | _ ->
+             raise List_conversion_failure
+          end
+
+  let tuple_of_ast expr =
+    begin match expr with
+    | [%expr ([%e? p1], [%e? p2])] -> (p1, p2)
+    | _ -> raise Tuple_conversion_failure
+    end
+
+  let string_tuple_of_ast expr =
+    begin match expr.pexp_desc with
+    | Pexp_tuple _ ->
+       let (p1, p2) = tuple_of_ast expr in
+       (string_of_ast p1, string_of_ast p2)
+    | _ -> raise Tuple_conversion_failure
+    end
+      
   exception Not_metadata of string
   exception Bad_value_for_metadata of string
+  exception Metadata_conversion_failure
 
   let value_binding_iterator iterator value_binding =
     begin match value_binding.pvb_pat with
@@ -231,8 +221,9 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = string_list_of_ast @@ list_of_ast expr in
+           let list = List.map string_tuple_of_ast @@ list_of_ast expr in
            out_meta := {!out_meta with authors = Some list }
+                         (* TODO Error handling that reports errors in authors list *)
          with Match_failure _ -> raise (Bad_value_for_metadata "authors")
        end
     | { ppat_desc = Ppat_var { txt = "focus" } ; _ } ->
@@ -278,6 +269,7 @@ module Meta = struct
        end
     | { ppat_desc = Ppat_var { txt = label } ; _ } ->
        raise (Not_metadata label)
+    | _ -> raise Metadata_conversion_failure
     end
 
   let meta_collection_iterator =
