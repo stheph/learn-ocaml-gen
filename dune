@@ -20,7 +20,7 @@
 		ppx_deriving_yojson.runtime
 		compiler-libs.common
 	)
-	(preprocess (pps ppx_deriving_yojson))
+	(preprocess (pps ppxlib.metaquot ppx_deriving_yojson))
 )
 
 (library

@@ -61,7 +61,45 @@ let rec call_sampler ctype =
      Exp.apply (Exp.construct (ident sampler) args) [Nolabel, exp_ident "()"]
   | _ -> raise Unsupported_operation
   end
-    
+
+(* Check if the type name occurs in any constructor parameters *)
+let rec check_recursive type_names constructors =
+  begin match type_names with
+  | [] -> false
+  | hd :: tl ->
+     (check_recursive' hd constructors) || (check_recursive tl constructors)
+  end
+and check_recursive' type_name constructors =
+  begin match constructors with
+  | [] -> false
+  | hd :: tl ->
+     let { pcd_args ; _ } = hd in
+     begin match pcd_args with
+     | Pcstr_tuple ctypes ->
+        let rec check_ctypes ctypes =
+          begin match ctypes with
+          | [] -> false
+          | hd :: tl ->
+             let { ptyp_desc ; _ } = hd in
+             begin match ptyp_desc with
+             | Ptyp_constr ({ txt = Lident type_name'; _ }, _) when type_name = type_name'->
+                true
+             | _ -> false || check_ctypes tl
+             end
+          end
+        in check_ctypes ctypes
+     | _ -> false
+     end
+  end
+
+let check_recursive_td type_decl =
+  let { ptype_name = { txt = name ; _ } ; ptype_kind; _ } = type_decl in
+  begin match ptype_kind with
+  | Ptype_variant constructors ->
+     Format.fprintf (Format.std_formatter) "%s : %b\n" name (check_recursive' name constructors)
+  | _ -> ()
+  end
+     
 let generate_sampler type_decl =
   let { ptype_name = { txt = name ; _ }
       ; ptype_params
@@ -120,47 +158,8 @@ let generate_sampler type_decl =
      end
   | Ptype_variant constructors, None ->
      (* type t = A | B | C | ... *)
-     let constr_function_names =
-       List.map
-         (fun ({ pcd_name = { txt = constr_name ; _} ; _ }) -> "construct_" ^ constr_name)
-         constructors
-     in
-     (* Converts a constructor C into a function *)
-     (* let construct_C = C (<appropriate samplers>) *)
-     let rec constr_functions constrs expr =
-       begin match constrs with
-       | [] -> expr
-       | hd::tl ->
-          let body = constr_functions tl expr in
-          let { pcd_name = { txt = constr_name ; _ } ; pcd_args ; _ } = hd in
-          let pat = Pat.var ({ txt = "construct_" ^ constr_name ; loc }) in
-          let expr =
-            begin match pcd_args with
-            | Pcstr_tuple ctypes ->
-               let samplers = List.map call_sampler ctypes in
-               let args =
-                 begin match samplers with
-                 | [] -> None
-                 | [x] -> Some x
-                 | l -> Some (Exp.tuple l)
-                 end
-               in
-               Exp.construct (ident constr_name) args
-            | _ -> raise Unsupported_operation
-            end
-          in
-          [%expr let [%p pat] = [%e expr] in [%e body]]
-       end
-     in
-     let body =
-       Exp.apply
-         (Exp.apply
-            (exp_ident "sample_alternatively")
-            [Nolabel, ast_list_of_strings constr_function_names])
-         [Nolabel, exp_ident "()"]
-     in
-     let expr = constr_functions constructors body in
-     Vb.mk sampler_pattern (sampler_params [%expr fun () -> [%e expr]])
+     (* TODO *)
+     Vb.mk sampler_pattern (sampler_params [%expr fun () -> ()])
   | Ptype_record labels, None ->
      (* type t = { l1 : T1 ; l2 : T2, ... } *)
      (* TODO *)

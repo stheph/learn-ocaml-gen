@@ -75,7 +75,6 @@ module Meta = struct
       stars : int option;
       title : string option;
       identifier : string;
-      author : (string * string) option;
       authors : (string * string) list option;
       focus : string list option;
       requirements : string list option;
@@ -91,8 +90,7 @@ module Meta = struct
       stars = Some 3;
       title = Some "Exercise";
       identifier = "0";
-      author = None;
-      authors = None;
+      authors = Some [];
       focus = Some [];
       requirements = Some [];
       forward_exercises = Some [];
@@ -213,15 +211,15 @@ module Meta = struct
            out_meta := {!out_meta with identifier = value }
          with Match_failure _ -> raise (Bad_value_for_metadata "identifier")
        end
-    | { ppat_desc = Ppat_var { txt = "author" } ; _ } ->
-       begin
-         try
-           let expr = value_binding.pvb_expr in
-           let tup = string_tuple_of_ast expr in
-           out_meta := {!out_meta with author = Some tup }
-                         (* TODO Error handling that reports errors in authors list *)
-         with Match_failure _ -> raise (Bad_value_for_metadata "author")
-       end
+    (* | { ppat_desc = Ppat_var { txt = "author" } ; _ } ->
+     *    begin
+     *      try
+     *        let expr = value_binding.pvb_expr in
+     *        let tup = string_tuple_of_ast expr in
+     *        out_meta := {!out_meta with author = Some tup }
+     *                      (\* TODO Error handling that reports errors in authors list *\)
+     *      with Match_failure _ -> raise (Bad_value_for_metadata "author")
+     *    end *)
     | { ppat_desc = Ppat_var { txt = "authors" } ; _ } ->
        begin
          try
