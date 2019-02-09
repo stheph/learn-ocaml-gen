@@ -16,6 +16,7 @@
 		Preliminaries
 	)
 	(libraries
+		utils
 		yojson
 		ppx_deriving_yojson.runtime
 		compiler-libs.common
@@ -68,6 +69,15 @@
 (library
 	(name typediter)
 	(modules Typediter)
+	(libraries
+		compiler-libs.common
+	)
+	(preprocess (pps ppxlib.metaquot))
+)
+
+(library
+	(name utils)
+	(modules Utils)
 	(libraries
 		compiler-libs.common
 	)
