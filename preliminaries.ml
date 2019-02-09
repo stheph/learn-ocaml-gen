@@ -116,54 +116,11 @@ module Meta = struct
   (* Printing out meta data as a json file: meta.json *)
   let (out_meta : meta_data ref) = ref default
 
-  (* Turns an ast branch that represents a list into an ocaml list *)
-  (* Should only really be used for lists of string literals for meta data *)
-  (* but I've opted to write it in a more general form *)
-  exception String_conversion_failure
-  exception List_conversion_failure
-  exception Tuple_conversion_failure
-
-  let rec list_of_ast expr =
-    begin match expr with
-    | [%expr []] -> []
-    | [%expr [%e? hd] :: [%e? tl]] ->
-       hd :: list_of_ast tl
-    end
-
-  let rec string_of_ast expr =
-    begin match expr.pexp_desc with
-    | Pexp_constant (Pconst_string (str, _)) -> str
-    | _ -> raise String_conversion_failure
-    end
-
-  let string_list_of_ast l =
-    try
-      List.map string_of_ast l
-    with e ->
-          begin match e with
-          | String_conversion_failure -> raise String_conversion_failure
-          | _ ->
-             raise List_conversion_failure
-          end
-
-  let tuple_of_ast expr =
-    begin match expr with
-    | [%expr ([%e? p1], [%e? p2])] -> (p1, p2)
-    | _ -> raise Tuple_conversion_failure
-    end
-
-  let string_tuple_of_ast expr =
-    begin match expr.pexp_desc with
-    | Pexp_tuple _ ->
-       let (p1, p2) = tuple_of_ast expr in
-       (string_of_ast p1, string_of_ast p2)
-    | _ -> raise Tuple_conversion_failure
-    end
-      
   exception Not_metadata of string
   exception Bad_value_for_metadata of string
   exception Metadata_conversion_failure
 
+  (* TODO Replace try-with with pattern matching *)
   let value_binding_iterator iterator value_binding =
     begin match value_binding.pvb_pat with
     | { ppat_desc = Ppat_var { txt = "learnocaml_version" } ; _ } ->
@@ -224,7 +181,7 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = List.map string_tuple_of_ast @@ list_of_ast expr in
+           let list = Utils.string_pair_list_of_ast expr in
            out_meta := {!out_meta with authors = Some list }
                          (* TODO Error handling that reports errors in authors list *)
          with Match_failure _ -> raise (Bad_value_for_metadata "authors")
@@ -233,7 +190,7 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = string_list_of_ast @@ list_of_ast expr in
+           let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with focus = Some list }
          with Match_failure _ -> raise (Bad_value_for_metadata "focus")
        end
@@ -241,7 +198,7 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = string_list_of_ast @@ list_of_ast expr in
+           let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with requirements = Some list }
          with Match_failure _ -> raise (Bad_value_for_metadata "requirements")
        end
@@ -249,7 +206,7 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = string_list_of_ast @@ list_of_ast expr in
+           let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with forward_exercises = Some list }
          with Match_failure _ -> raise (Bad_value_for_metadata "forward_exercises")
        end
@@ -257,7 +214,7 @@ module Meta = struct
        begin
          try
            let expr = value_binding.pvb_expr in
-           let list = string_list_of_ast @@ list_of_ast expr in
+           let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with backward_exercises = Some list }
          with Match_failure _ -> raise (Bad_value_for_metadata "backward_exercises")
        end
