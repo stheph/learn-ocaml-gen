@@ -11,13 +11,10 @@ let ident name = { txt = Lident name ; loc }
 
 let exp_ident name = Exp.ident (ident name)
 
-let call_on_unit name = [%expr [%e exp_ident name] ()]
-
 let make_function name body =
   let pat = Pat.var { txt = name ; loc } in
   [%expr fun [%p pat] -> [%e body]]
 
-(* Takes a list of strings, and converts it to a list in OCaml syntax *)
 let rec ast_list_of_strings l =
   begin match l with
   | [] -> Exp.construct { txt = Lident "[]" ; loc = loc  } None
@@ -27,145 +24,112 @@ let rec ast_list_of_strings l =
      let tup = Exp.tuple [hd_expr;tl_expr] in
      Exp.construct { txt = Lident "::" ; loc = loc } (Some tup)
   end
-    
-let strip_apos str =
-  if String.contains str '\''
-  then
-    String.concat "" @@ String.split_on_char '\'' str
-  else
-    str
-
-(* TODO I'd like a store for valid samplers *)
-(* that we check against *)
-let get_sampler name = "sample_" ^ (strip_apos name)
-let get_sampler_by_ctype ctype =
-  get_sampler (Format.asprintf "%a" Pprintast.core_type ctype)
-
-let rec call_sampler ctype =
-  begin match ctype.ptyp_desc with
-  | Ptyp_var name ->
-     exp_ident @@ "sample_" ^ name
-  | Ptyp_tuple ctypes ->
-     let samplers = List.map call_sampler ctypes in
-     Exp.tuple samplers
-  | Ptyp_constr ({ txt = Lident name ; _ }, ctypes) ->
-     let sampler = "sample_" ^ name in
-     let samplers = List.map call_sampler ctypes in
-     let args =
-       begin match samplers with
-       | [] -> None
-       | [x] -> Some x
-       | l -> Some (Exp.tuple l)
-       end
-     in
-     Exp.apply (Exp.construct (ident sampler) args) [Nolabel, exp_ident "()"]
-  | _ -> raise Unsupported_operation
-  end
-
-(* Check if the type name occurs in any constructor parameters *)
-let rec check_recursive type_names constructors =
-  begin match type_names with
-  | [] -> false
-  | hd :: tl ->
-     (check_recursive' hd constructors) || (check_recursive tl constructors)
-  end
-and check_recursive' type_name constructors =
-  begin match constructors with
-  | [] -> false
-  | hd :: tl ->
-     let { pcd_args ; _ } = hd in
-     begin match pcd_args with
-     | Pcstr_tuple ctypes ->
-        let rec check_ctypes ctypes =
-          begin match ctypes with
-          | [] -> false
-          | hd :: tl ->
-             let { ptyp_desc ; _ } = hd in
-             begin match ptyp_desc with
-             | Ptyp_constr ({ txt = Lident type_name'; _ }, _) when type_name = type_name'->
-                true
-             | _ -> false || check_ctypes tl
-             end
-          end
-        in check_ctypes ctypes
-     | _ -> false
-     end
-  end
-
-let check_recursive_td type_decl =
-  let { ptype_name = { txt = name ; _ } ; ptype_kind; _ } = type_decl in
-  begin match ptype_kind with
-  | Ptype_variant constructors ->
-     Format.fprintf (Format.std_formatter) "%s : %b\n" name (check_recursive' name constructors)
-  | _ -> ()
-  end
-     
-let generate_sampler type_decl =
+                               
+let rec make_sampler type_decl =
   let { ptype_name = { txt = name ; _ }
       ; ptype_params
       ; ptype_kind
       ; ptype_manifest ; _
       } = type_decl in
-  let sampler_name = "sample_" ^ name in
-  let sampler_pattern = Pat.var { txt = sampler_name ; loc } in
+  let sampler_pattern = Pat.var { txt = "sample_" ^ name ; loc } in
 
-  (* type 'a list -> "let rec sample_list sample_a () = ... " *)
   let sampler_params expr =
-    let rec get_sampler_params params =
-      begin match params with
-      | [] -> []
-      | hd :: tl ->
-         begin match hd with
-         | { ptyp_desc = Ptyp_var var_name ; _ } ->
-            (get_sampler var_name) :: get_sampler_params tl
-         | _ -> get_sampler_params tl
-         end
-      end
-    in
-    let params = List.map (fun x -> fst x) ptype_params in
-    List.fold_right make_function (get_sampler_params params) expr
+    let params = List.map pass_sampler (List.map (fun x -> fst x) ptype_params) in
+    List.fold_right make_function params expr
   in
   
   begin match ptype_kind, ptype_manifest with
   | Ptype_abstract, Some manifest ->
      begin match manifest.ptyp_desc with
-     | Ptyp_arrow (_, t1, t2) ->
-        (* ex. type t = t1 -> t2 *)
-        let exn_msg =
-          Exp.constant
-            (Pconst_string
-            (Format.asprintf
-               "Please provide functions of type %a"
-               Pprintast.core_type manifest, None))
-        in
-        let exn_expr = Exp.construct (ident "Function_sampler") (Some exn_msg) in
-        let raise_expr = Exp.apply (exp_ident "raise") [Nolabel, exn_expr] in
-        Vb.mk sampler_pattern (sampler_params  [%expr fun () -> [%e raise_expr]])
-     | Ptyp_tuple ts ->
-        (* ex. type t = t_1 * t_2 * ... * t_n *)
-        let samplers = List.map (get_sampler_by_ctype) ts in
-        let sampler_calls = List.map call_on_unit samplers in
-        let expr = Exp.tuple sampler_calls in
-        Vb.mk sampler_pattern (sampler_params [%expr fun () -> [%e expr]])
-     | Ptyp_constr ({ txt = Lident name' }, ts) ->
-        (* ex. type t = int; type t = int list; type 'a t = 'a list *)
-        let sampler_name' = get_sampler name' in
-        let samplers = List.map get_sampler_by_ctype ts in
-        let sampler_args = List.map (fun x -> (Nolabel, exp_ident x)) (samplers@["()"]) in
-        let expr = Exp.apply (exp_ident sampler_name') sampler_args in
-        Vb.mk sampler_pattern (sampler_params [%expr fun () -> [%e expr]])
-     | _ -> raise Unsupported_operation
-     end
-  | Ptype_variant constructors, None ->
-     (* type t = A | B | C | ... *)
-     (* TODO *)
-     Vb.mk sampler_pattern (sampler_params [%expr fun () -> ()])
-  | Ptype_record labels, None ->
-     (* type t = { l1 : T1 ; l2 : T2, ... } *)
-     (* TODO *)
-     Vb.mk sampler_pattern (sampler_params [%expr fun () -> ()])
+       | Ptyp_arrow (_, t1, t2) ->
+          (* ex. type t = t1 -> t2 *)
+          let exn_msg =
+            Exp.constant
+              (Pconst_string
+              (Format.asprintf
+                 "Please provide functions of type %a"
+                 Pprintast.core_type manifest, None))
+          in
+          let exn_expr = Exp.construct (ident "Function_sampler") (Some exn_msg) in
+          let raise_expr = Exp.apply (exp_ident "raise") [Nolabel, exn_expr] in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e raise_expr]]
+       | Ptyp_tuple ts ->
+          (* ex. type t = t_1 * t_2 * ... * t_n *)
+          let sampler_calls = List.map call_sampler ts in
+          let expr = Exp.tuple sampler_calls in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e expr]]
+       | Ptyp_constr ({ txt = Lident name' }, ts) ->
+          (* ex. type t = int; type t = int list; type 'a t = 'a list *)
+          let expr = call_sampler manifest in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e expr]]
+       | _ -> raise Unsupported_operation
+       end
+    | Ptype_variant constructors, None ->
+       (* type t = A | B | C | ... *)
+       let constructor_fn_names =
+         List.map (fun { pcd_name = { txt = name ; _ } ; _} -> constructor_pattern name) constructors
+       in
+       let expr = ast_list_of_strings constructor_fn_names in
+       let expr = Exp.apply (exp_ident "sample_alternatively") [Nolabel, expr] in
+       let expr = Exp.apply expr [Nolabel, exp_ident "()"] in
+       let expr = List.fold_left make_constructor_function expr constructors in
+       Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
+    (* | Ptype_record labels, None ->
+     *    (\* type t = { l1 : T1 ; l2 : T2, ... } *\)
+     *    (\* TODO *\)
+     *    Vb.mk sampler_pattern ([%expr fun () -> ()]) *)
+    | _ -> raise Unsupported_operation
+  end
+
+and call_sampler ctype =
+  begin match ctype.ptyp_desc with
+  | Ptyp_constr ({ txt = Lident name ; _ }, ts) ->
+     let args = List.map (fun x -> (Nolabel, exp_ident @@ pass_sampler x)) ts in
+     let args = args@[Nolabel, exp_ident "()"] in
+     Exp.apply (exp_ident @@ pass_sampler ctype) args
+  | _ ->
+     let sampler_call = exp_ident @@ pass_sampler ctype in
+     let unit_expr = Exp.construct (ident "()") None in
+     Exp.apply sampler_call [Nolabel, unit_expr]
+  end
+               
+and pass_sampler ctype =
+  begin match ctype.ptyp_desc with
+  | Ptyp_var name -> "sample_" ^ name
+  | Ptyp_arrow (_, t1, t2) ->
+     "sample_" ^ (ctype_string t1) ^ "_arrow_" ^ (ctype_string t2)
+  | Ptyp_tuple ctypes ->
+     let tup = String.concat "_" (List.map ctype_string ctypes) in
+     "sample_" ^ tup
+  | Ptyp_constr ({ txt = Lident name ; _ }, _) ->
+     "sample_" ^ name
   | _ -> raise Unsupported_operation
   end
 
+and ctype_string ctype =
+  begin match ctype.ptyp_desc with
+  | Ptyp_var name -> name
+  | Ptyp_constr ({ txt = Lident name ; _ }, _) -> name
+  | _ -> raise Unsupported_operation
+  end
+
+and make_constructor_function expr cnstr_decl =
+  let { pcd_name = { txt = name ; _} ; pcd_args ; _ } = cnstr_decl in
+  let pattern =
+    Pat.var { txt = constructor_pattern name ; loc }
+  in
+  let body =
+    begin match pcd_args with
+    | Pcstr_tuple ctypes ->
+       let args = List.map call_sampler ctypes in
+       Exp.construct ({ txt = Lident name; loc }) (Some (Exp.tuple args))
+    | _ -> raise Unsupported_operation
+    end
+  in
+  [%expr let [%p pattern] = [%e body] in [%e expr]]
+
+and constructor_pattern name =
+    "cnstr_" ^ name
+  
 let generate_samplers type_decls =
-  Str.value Recursive (List.map generate_sampler type_decls)
+  Str.value Recursive (List.map make_sampler type_decls)

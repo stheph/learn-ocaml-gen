@@ -25,7 +25,6 @@ let () =
     let oc = open_out ("output.ml") in
     let ppf = Format.formatter_of_out_channel oc in
     Format.fprintf ppf "@[%a@]@." Pprintast.structure [Sampler.generate_samplers !type_decls];
-    List.iter Sampler.check_recursive_td !type_decls;
     close_out oc
   with Syntaxerr.Error _ as err ->
     Location.report_exception (Format.err_formatter) err
