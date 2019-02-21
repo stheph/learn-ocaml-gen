@@ -51,16 +51,6 @@
 	(name sampler)
 	(modules Sampler)
 	(libraries
-		typevars
-		compiler-libs.common
-	)
-	(preprocess (pps ppxlib.metaquot))
-)
-
-(library
-	(name typevars)
-	(modules Typevars)
-	(libraries
 		compiler-libs.common
 	)
 	(preprocess (pps ppxlib.metaquot))

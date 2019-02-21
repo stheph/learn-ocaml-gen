@@ -1,118 +1,36 @@
 (* Functions for creating and invoking samplers *)
 
-exception No_choice
-exception Not_implemented of string
-            
+open Parsetree
+open Ast_helper
+open Asttypes
+open Longident
+
+exception Unsupported_operation of string
+
 let loc = Location.none
 
-let repr = Ctype.repr
+let ident name = { txt = Lident name ; loc }
 
-let (samplers : string list ref) = ref []
+let exp_ident name = Exp.ident (ident name)
 
-(* This is where we'll store all the samplers ast forms *)
-(* We won't print this until the very end *)
-(* given the Typed phase may introduce new ones *)
-let (sampler_fns : Parsetree.value_binding list ref) = ref []
+let make_function name body =
+  let pat = Pat.var { txt = name ; loc } in
+  [%expr fun [%p pat] -> [%e body]]
+    
+let rec ast_list_of_strings l =
+  begin match l with
+  | [] -> Exp.construct { txt = Lident "[]" ; loc = loc  } None
+  | hd :: tl ->
+     let hd_expr = Exp.ident { txt = Lident hd ; loc = loc } in
+     let tl_expr = ast_list_of_strings tl in
+     let tup = Exp.tuple [hd_expr;tl_expr] in
+     Exp.construct { txt = Lident "::" ; loc = loc } (Some tup)
+  end
 
-let rec register_sampler str =
-  if not (sampler_exists str) then
-    samplers := str :: !samplers
-
-and sampler_exists str =
-  List.mem str !samplers
-
-let register_sampler_fn fn =
-  sampler_fns := !sampler_fns @ [fn]
-                        
-let () = Random.self_init ();
-  register_sampler "sample_int";
-  register_sampler "sample_float";
-  register_sampler "sample_bool";
-  register_sampler "sample_char";
-  register_sampler "sample_string"
-
-let choose l =
-  if List.length l = 0
-  then raise No_choice
-  else
-    let
-      choice = Random.int (List.length l)
-    in
-    List.nth l choice
-               
-(* The untyped version is mainly for producing samplers via type declarations *)
 module Untyped = struct
 
-  open Ast_helper
-  open Types
-  open Longident
-
-  let base_types =
-    [
-      Predef.type_int;
-      Predef.type_bool;
-      Predef.type_string
-    ]
-
-  let rec sampler_name type_expr =
-    let ending = sampler_string_of_type type_expr in
-    "sample_" ^ ending
-  and sampler_string_of_type type_expr =
-    begin match type_expr.desc with
-    | Tconstr (p, ts, _) ->
-       begin match ts with
-       | [] -> Path.name p
-       | x ->
-          let x' = List.map sampler_string_of_type ts in
-          let prepend = String.concat "_" x' in
-          prepend ^ "_" ^ (Path.name p)
-       end
-    | Ttuple  ts ->
-       String.concat "_" (List.map sampler_string_of_type ts)
-    end
-
-  let rec get_sampler fn_sig argtypes =
-    let id_desc_map = List.map (fun x -> (x.id, x.desc)) argtypes in
-    let type_vars = List.map Typevars.Typed.collect_vars argtypes in
-    let type_vars = List.sort_uniq compare @@ List.flatten type_vars in
-
-    let rec assign_types type_vars =
-      begin match type_vars with
-      | [] -> []
-      | hd::tl ->
-         (* This time, we'll choose one random type assignment, rather than doing one of each *)
-         let hd' = (hd, choose base_types) in
-         hd' :: (assign_types tl)
-      end
-    in
-
-    let var_map = assign_types type_vars in
-    let instantiated = List.map (Typevars.Typed.instantiate_var var_map) argtypes in
-    let fn_sig = Typevars.Typed.instantiate_var var_map fn_sig in
-    let samplers = List.map sampler_name instantiated in
-    let sampler_expr sampler =
-      let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
-      let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
-      Exp.apply sampler_expr [Nolabel, unit_expr]
-    in
-    let sampler_exprs = List.map (sampler_expr) samplers in
-    let sampler_tuple = Exp.tuple sampler_exprs in
-    let sampler_fun = Exp.fun_ Nolabel None (Pat.construct { txt = Lident "()" ; loc = loc } None) sampler_tuple in
-    (fn_sig, sampler_fun)
-  
   open Ast_iterator
-  open Asttypes
-  open Longident
-  open Parsetree
 
-  let base_types =
-    [
-      [%type: int];
-      [%type : bool];
-      [%type : string]
-    ]
-
-  (* We collect all the type declarations here *)
   let (type_decls : type_declaration list ref) = ref []
 
   let type_declaration_iterator _iterator type_decl =
@@ -123,268 +41,139 @@ module Untyped = struct
       default_iterator with
       type_declaration = type_declaration_iterator
     }
+  
+  let rec make_sampler type_decl =
+    let { ptype_name = { txt = name ; _ }
+        ; ptype_params
+        ; ptype_kind
+        ; ptype_manifest ; _
+        } = type_decl in
+    let sampler_pattern = Pat.var { txt = "sample_" ^ name ; loc } in
 
-  (* Some functions for making functions *)
-
-  (* compose_let (let pat = e1 in e2) e' -> let pat = e1 in e' *)
-  let compose_let [%expr let [%p? pat] = [%e? e1] in [%e? e2]] e' =
-    [%expr let [%p pat] = [%e e1] in [%e e']]
-                                     
-  (* Same as above but with let rec *)
-  let compose_let_rec [%expr let rec [%p? pat] = [%e? e1] in [%e? e2]] e' =
-    [%expr let rec [%p pat] = [%e e1] in [%e e']]
-
-  (* compose_fn (fun pat -> e) e' -> fun pat -> e' *)
-  let compose_fn [%expr fun [%p? pat] -> [%e? e]] e' =
-    [%expr fun [%p pat] -> [%e e']]
-
-  (* create_fn [x1;x2;..;xn] e -> fun x1 -> fun x2 -> ... -> fun xn -> e *)
-  let rec create_fn args e =
-    begin match args with
-    | [] -> e
-    | hd::tl ->
-       let pat = Pat.var ( { txt = hd ; loc = loc} ) in
-       let e' = create_fn tl e in
-       [%expr fun [%p pat] -> [%e e']]
-    end
-
-  (* We turn type declarations into strings for the sampler name *)
-  (* ex. type test = ... -> sampler_test  *)
-  (* For types with variables, we first instantiate the type variable to some value *)
-  (* ex. type 'a tree  = ... -> sampler_int_tree *)
-  let rec sampler_string_of_ctypes ctypes =
-    begin match ctypes with
-    | [] -> None
-    | ctypes' ->
-       Some (String.concat "_" @@ List.map sampler_string_of_ctype ctypes')
-    end
-  and sampler_string_of_ctype ctype =
-    begin match ctype.ptyp_desc with
-    | Ptyp_var v -> v
-    | Ptyp_constr ( { txt = Lident id ; _ } , _ctypes) ->
-       id                       (* TODO Why is ctypes unused? *)
-    | Ptyp_tuple ctypes ->
-       String.concat "_" @@ List.map sampler_string_of_ctype ctypes
-    end
-
-  (* Give it a type, and it returns the name of the sampler *)
-  let sampler_name ctype =
-    begin match ctype.ptyp_desc with
-    | Ptyp_constr ( { txt = Lident name ; _ }, ctypes ) ->
-       begin match ctypes with
-       | [] -> "sample_" ^ name
-       | _ ->
-          let ctypes_string = sampler_string_of_ctypes ctypes in
-          begin match ctypes_string with
-          | None -> "sample_" ^ name
-          | Some ctypes_string' ->
-             "sample_" ^ ctypes_string' ^ "_" ^ name
-          end
-       end
-    | _ -> raise (Not_implemented "sampler_name")
-    end
-
-  (* Given a constructor's name and arguments, we create a construct expression *)
-  (* This is used for creating a random instance of that constructor *)
-  (* so we assume the arguments are names of samplers *)
-  let rec constructor constr_name sampler_args =
-    let constr_id = { txt = Lident constr_name ; loc = loc } in
-    let apply_to_unit name =
-      let name_expr = Exp.ident { txt = Lident name ; loc = loc } in
-      let unit_expr = Exp.ident { txt = Lident "()" ; loc = loc } in
-      Exp.apply name_expr [Nolabel, unit_expr]
+    let sampler_params expr =
+      let sampler_name ctype =
+        begin match ctype.ptyp_desc with
+        | Ptyp_var name -> "sample_" ^ name
+        | Ptyp_constr ({ txt = Lident name ; _ }, _) ->
+           "sample_" ^ name
+        | _ -> raise (Unsupported_operation "sampler_params")
+        end
+      in
+      let params = List.map sampler_name (List.map (fun x -> fst x) ptype_params) in
+      List.fold_right make_function params expr
     in
-    let sampler_exprs = List.map apply_to_unit sampler_args in
-    let args =
-      begin match sampler_exprs with
-      | [] -> None
-      | [x] -> Some x
-      | l -> Some (Exp.tuple l)
-      end
-    in
-    Exp.construct constr_id args
-
-  (* Now we create functions which create constructors *)
-  (* Takes a constructor_declaration *)
-  (* Returns the function plus its name as a string *)
-  and constructor_function { pcd_name = { txt = constr_name } ; pcd_args = Pcstr_tuple args } =
-    let constr_args = List.map sampler_name args in
-    let constr = constructor constr_name constr_args in
-    let constr_fn = create_fn ["()"] constr in (* Shortuct *)
-    let fn_name = "constr_" ^ (String.lowercase_ascii constr_name) in
-    let constr_pat = Pat.var { txt = fn_name ; loc = loc } in
-
-    (* This is just a placeholder until we compose all the lets together *)
-    let default_expr = Exp.ident { txt = Lident "default" ; loc = loc } in
     
-    ([%expr let [%p  constr_pat] = [%e constr_fn] in [%expr default_expr]], fn_name)
-
-  (* Takes a list of strings, and converts it to a list in OCaml syntax *)
-  let rec ast_list_of_strings l =
-    begin match l with
-    | [] -> Exp.construct { txt = Lident "[]" ; loc = loc  } None
-    | hd :: tl ->
-       let hd_expr = Exp.ident { txt = Lident hd ; loc = loc } in
-       let tl_expr = ast_list_of_strings tl in
-       let tup = Exp.tuple [hd_expr;tl_expr] in
-       Exp.construct { txt = Lident "::" ; loc = loc } (Some tup)
-    end
-
-  (* Now we have our sampler functions which we'll make mutually recursive *)
-  let generate_sampler { ptype_name = { txt = name} ;
-                     ptype_params = params ;
-                     ptype_kind = kind ;
-                     ptype_manifest = manifest} =
-    begin match kind with
-    | Ptype_variant constrs ->
-       let params = List.map (fun (x, y) -> x) params in
-       let params_string = sampler_string_of_ctypes params in
-
-       let sampler_pattern_string param_string =
-         begin match param_string with
-         | None -> "sample_" ^ name
-         | Some param_string' -> "sample_" ^ param_string' ^ "_" ^ name
-         end
-       in
-       let sampler_pattern = Pat.var { txt = sampler_pattern_string params_string ; loc = loc } in
-       let constr_generators = List.map constructor_function constrs in
-       let (gen_exprs, gen_list) = List.split constr_generators in
-
-       let choose_expr = Exp.ident { txt = Lident "sample_alternatively" ; loc = loc } in
-       let unit_expr = Exp.ident { txt = Lident "()" ; loc = loc } in
-       let apply_choose_expr = Exp.apply choose_expr [Nolabel, ast_list_of_strings gen_list] in
-       let apply_to_unit = Exp.apply apply_choose_expr [Nolabel, unit_expr] in
-
-       let generator_expr =
-         List.fold_right compose_let gen_exprs apply_to_unit in
-       let generator_fn = create_fn ["()"] generator_expr in
-       register_sampler @@ sampler_pattern_string params_string;
-       Vb.mk sampler_pattern generator_fn
-    | Ptype_abstract ->
-       begin match manifest with
-       | None -> raise (Not_implemented "generate_sampler :: match manifest")
-       | Some ctype ->
-          let sampler_name' = "sample_" ^ name in
-          let sampler_pattern = Pat.var { txt = sampler_name' ; loc = loc } in
-          
-          let sampler_application sampler =
-            let sampler_expr = Exp.ident { txt = Lident sampler ; loc = loc } in
-            let unit_expr = Exp.construct { txt = Lident "()" ; loc = loc } None in
-            Exp.apply sampler_expr [Nolabel, unit_expr]
+    begin match ptype_kind, ptype_manifest with
+    | Ptype_abstract, Some manifest ->
+       begin match manifest.ptyp_desc with
+       | Ptyp_arrow (_, t1, t2) ->
+          (* ex. type t = t1 -> t2 *)
+          let exn_msg =
+            Exp.constant
+              (Pconst_string
+                 (Format.asprintf
+                    "Please provide functions of type %a"
+                    Pprintast.core_type manifest, None))
           in
-          begin match ctype.ptyp_desc with
-          | Ptyp_constr ({ txt = type_name ; _ } ,_) ->
-             let ctype_sampler = sampler_application @@ sampler_name ctype in
-             let sampler_fn = create_fn ["()"] ctype_sampler in
-             register_sampler sampler_name';
-             Vb.mk sampler_pattern sampler_fn
-          | Ptyp_tuple ctypes ->
-             let ctypes_samplers = List.map sampler_application @@ List.map sampler_name ctypes in
-             let samplers_tuple = Exp.tuple ctypes_samplers in
-             let sampler_fn = create_fn ["()"] samplers_tuple in
-             register_sampler sampler_name';
-             Vb.mk sampler_pattern sampler_fn
-          | _ ->
-             raise (Not_implemented
-               "generate_sampler :: match manifesh :: match ctype.ptyp_desc")
-          end
+          let exn_expr = Exp.construct (ident "Function_sampler") (Some exn_msg) in
+          let raise_expr = Exp.apply (exp_ident "raise") [Nolabel, exn_expr] in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e raise_expr]]
+       | Ptyp_tuple ts ->
+          (* ex. type t = t_1 * t_2 * ... * t_n *)
+          let sampler_calls = List.map call_sampler ts in
+          let expr = Exp.tuple sampler_calls in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e expr]]
+       | Ptyp_constr ({ txt = Lident name' }, ts) ->
+          (* ex. type t = int; type t = int list; type 'a t = 'a list *)
+          let expr = call_sampler manifest in
+          Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e expr]]
+       | _ -> raise (Unsupported_operation "make_sampler :: ptype_abstract, some manifest")
        end
-    | _ -> raise (Not_implemented "generate_sampler")
-    end
-
-  (* Take the cross product of an arbitrary number of lists *)
-  (* Due to the type system, each list has to be a singleton list *)
-  (* cross_all : 'a list list list -> 'a list list *)
-  let rec cross_all l =
-    begin match l with
-    | [] -> []
-    | hd::tl ->
-       let rec cross l1 l2 =
-         begin match l1, l2 with
-         | l1', [] -> l1'
-         | [], l2' -> l2'
-         | [x], l2' -> List.map (fun x' -> x@x') l2'
-         | l1', [y] -> List.map (fun y' -> y'@y) l1'
-         | hd::tl, l2' ->
-            let hd' = List.map (fun y -> hd@y) l2'
-            in hd' @ (cross tl l2')
-         end
+    | Ptype_variant constructors, None ->
+       (* type t = A | B | C | ... *)
+       let constructor_fn_names =
+         List.map (fun { pcd_name = { txt = name ; _ } ; _} -> constructor_pattern name) constructors
        in
-       cross hd (cross_all tl)
+       let expr = ast_list_of_strings constructor_fn_names in
+       let expr = Exp.apply (exp_ident "sample_alternatively") [Nolabel, expr] in
+       let expr = Exp.apply expr [Nolabel, exp_ident "()"] in
+       let expr = List.fold_left make_constructor_function expr constructors in
+       Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
+    (* | Ptype_record labels, None ->
+     *    (\* type t = { l1 : T1 ; l2 : T2, ... } *\)
+     *    (\* TODO *\)
+     *    Vb.mk sampler_pattern ([%expr fun () -> ()]) *)
+    | _ -> raise (Unsupported_operation "make_sampler")
     end
 
-  let rec generate_sampler_with_type_vars ({ ptype_params = params ;
-                                             ptype_kind = kind ; _ } as type_decl) =
-    let params = List.map (fun (x, _) -> x.ptyp_desc) params in
-    let rec assign_types params =
-      begin match params with
-      | [] -> []
-      | hd::tl ->
-         let hd' = List.map (fun x -> [hd, x]) base_types in
-         hd' :: assign_types tl
+  and call_sampler ctype =
+    begin match ctype.ptyp_desc with
+    | Ptyp_constr ({ txt = Lident name ; _ }, ts) ->
+       let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
+       let args = args@[Nolabel, exp_ident "()"] in
+       Exp.apply (pass_sampler ctype) args
+    | _ ->
+       let sampler_call = pass_sampler ctype in
+       let unit_expr = Exp.construct (ident "()") None in
+       Exp.apply sampler_call [Nolabel, unit_expr]
+    end
+      
+  and pass_sampler ctype =
+    begin match ctype.ptyp_desc with
+    | Ptyp_var name -> exp_ident @@ "sample_" ^ name
+    (* | Ptyp_arrow (_, t1, t2) ->
+     *    "sample_" ^ (ctype_string t1) ^ "_arrow_" ^ (ctype_string t2) *)
+    | Ptyp_tuple ctypes ->
+       let tup = Exp.tuple @@ List.map call_sampler ctypes in
+       [%expr fun () -> [%e tup]]
+    | Ptyp_constr ({ txt = Lident name ; _ }, _) ->
+       exp_ident @@ "sample_" ^ name
+    | _ -> raise (Unsupported_operation "pass_sampler")
+    end
+
+  and ctype_string ctype =
+    begin match ctype.ptyp_desc with
+    | Ptyp_var name -> name
+    | Ptyp_constr ({ txt = Lident name ; _ }, _) -> name
+    | _ -> raise (Unsupported_operation "ctype_string")
+    end
+
+  and make_constructor_function expr cnstr_decl =
+    let { pcd_name = { txt = name ; _} ; pcd_args ; _ } = cnstr_decl in
+    let pattern =
+      Pat.var { txt = constructor_pattern name ; loc }
+    in
+    let body =
+      begin match pcd_args with
+      | Pcstr_tuple ctypes ->
+         let args = List.map call_sampler ctypes in
+         Exp.construct ({ txt = Lident name; loc }) (Some (Exp.tuple args))
+      | _ -> raise (Unsupported_operation "make_constructor_function")
       end
     in
-    
-    let var_maps = cross_all @@ assign_types params in
-    List.map (fun x -> generate_sampler_with_type_vars' type_decl x) var_maps
+    [%expr let [%p pattern] = [%e body] in [%e expr]]
 
-  and generate_sampler_with_type_vars' ({ ptype_params = params ;
-                                          ptype_kind = kind ; _ } as type_decl) var_maps =
-    begin match kind with
-    | Ptype_variant constrs ->
-       let replace_param param var_maps =
-         let param' = (fun (x, _) -> x.ptyp_desc) param in
-         begin match List.assoc_opt param' var_maps with
-         | Some x -> (fun (_, y) -> (x, y)) param
-         | None -> param
-         end
-       in
-       let params' = List.map (fun x -> replace_param x var_maps) params in
-       let constrs' =  Typevars.Untyped.instantiate_var var_maps constrs in
-       generate_sampler
-         { type_decl with ptype_params = params' ; ptype_kind = Ptype_variant constrs' }
-    | _ -> raise (Not_implemented "generate_sampler_with_type_vars")
-    end
-
-      
-  (* We use this to discriminate between decls with type variables and without *)
-  let has_type_variables ({ ptype_params = params ; _ } : type_declaration) =
-    begin match params with
-    | [] -> false
-    | _ -> true
-    end
-
+  and constructor_pattern name =
+    "cnstr_" ^ name
+                 
   let run parse_tree =
     type_decl_iterator.structure type_decl_iterator parse_tree;
-    let with_vars = List.filter has_type_variables !type_decls in
-    let without_vars = List.filter (fun x -> not @@ has_type_variables x) !type_decls in
-    let with_var_samplers = List.map generate_sampler_with_type_vars with_vars in
-    let without_var_samplers = List.map generate_sampler without_vars in
-    List.iter register_sampler_fn (List.flatten @@ without_var_samplers :: with_var_samplers)
-end
-                   
+    Str.value Recursive (List.map make_sampler !type_decls)
 
-(* The typed version is mostly for invoking samplers created by the untyped version *)
-(* But some samplers may have been missed, so we create those as well *)
-(* For example, any function which takes a tuple *)
-(* f : a' * 'b -> 'c, there will most likely be samplers for instantiations of 'a and 'b *)
-(* but unless 'a * 'b was declared as a type on its own, there is no sampler created *)
+end
+
 module Typed = struct
+
   open Ast_helper
   open Types
   open Longident
 
-  let base_types =
-    [
-      Predef.type_int;
-      Predef.type_bool;
-      Predef.type_string
-    ]
+  exception No_choice
+         
+  (* The typed module should take a type_expr and return the appropriate sampler *)
+  (* or create one if it doesn't exist (ex. functions which take tuple arguments) *)
 
-  (* Borrowed from Printtyp.ml *)
-  (* Print a type expression *)
-
-  let names = ref ([] : (type_expr * string) list)
+let names = ref ([] : (type_expr * string) list)
   let name_counter = ref 0
   let named_vars = ref ([] : string list)
 
@@ -436,12 +225,11 @@ module Typed = struct
   let check_name_of_type t = ignore(name_of_type t)
 
   let remove_names tyl =
-    let tyl = List.map repr tyl in
+    let tyl = List.map Ctype.repr tyl in
     names := List.filter (fun (ty,_) -> not (List.memq ty tyl)) !names
 
-  (* End *)
   let rec print_type_expr ppf expr =
-    let {id = id; desc = tdesc} as expr= Btype.repr expr in
+    let {id = id; desc = tdesc} as expr = expr in
     begin match tdesc with
     | Tvar so ->
        let str = name_of_type expr 
@@ -513,130 +301,100 @@ module Typed = struct
          print_type_expr_list' tl
     end
 
-      
-  let rec sampler_name type_expr =
-    let ending = sampler_string_of_type type_expr in
-    "sample_" ^ ending
-  and sampler_string_of_type type_expr =
-    print_type_expr (Format.std_formatter) type_expr;
-    begin match type_expr.desc with
-      | Tvar s ->
-        begin match s with
-          | None -> ""
-          | Some s' -> s'
-        end
-    | Tconstr (p, ts, _) ->
-       begin match ts with
-       | [] -> Path.name p
-       | x ->
-          let x' = List.map sampler_string_of_type ts in
-          let prepend = String.concat "_" x' in
-          prepend ^ "_" ^ (Path.name p)
-       end
-    | Ttuple  ts ->
-       String.concat "_" (List.map sampler_string_of_type ts)
-    | Tarrow (_, t1, t2, _) ->
-      (sampler_string_of_type t1) ^ "_arrow_" ^ (sampler_string_of_type t2)
-    | _ -> "ERROR"
-       
-    end
+              
+  let base_types =
+    [
+      Predef.type_int;
+      Predef.type_bool;
+      Predef.type_string
+    ]
 
-  let rec get_sampler fn_sig argtypes =
-    let id_desc_map = List.map (fun x -> (x.id, x.desc)) argtypes in
-    (* Unlike in the untyped version, we're gonna use the id to represent a type var *)
-    let type_vars = List.map Typevars.Typed.collect_vars argtypes in
-    let type_vars = List.sort_uniq compare @@ List.flatten type_vars in
-
-    let rec assign_types type_vars =
-      begin match type_vars with
-      | [] -> []
-      | hd::tl ->
-         (* This time, we'll choose one random type assignment, rather than doing one of each *)
-         let hd' = (hd, choose base_types) in
-         hd' :: (assign_types tl)
-      end
-    in
-
-    let var_map = assign_types type_vars in
-    let instantiated = List.map (Typevars.Typed.instantiate_var var_map) argtypes in
-    let fn_sig = Typevars.Typed.instantiate_var var_map fn_sig in
-    let _ = Format.fprintf (Format.std_formatter) "fn_sig:%a\n" Printtyp.type_expr fn_sig in
-    let samplers = List.map sampler_name instantiated in
-    let _ = List.iter (fun x -> print_string @@ x ^ "\n") samplers in
-    
-    (* Check that all the samplers we wanna use exist *)
-    (* and create the ones that don't *)
-    List.iter (check_samplers) (List.combine samplers argtypes);
-    
-    let sampler_expr sampler =
-      let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
-      let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
-      Exp.apply sampler_expr [Nolabel, unit_expr]
-    in
-    let sampler_exprs = List.map (sampler_expr) samplers in
-    let sampler_tuple = Exp.tuple sampler_exprs in
-    let sampler_fun = Exp.fun_ Nolabel None (Pat.construct { txt = Lident "()" ; loc = loc } None) sampler_tuple in
-    (fn_sig, sampler_fun)
-
-  (* Copied from Untyped above *)
-  and create_fn args e =
-    let open Parsetree in
-    begin match args with
-    | [] -> e
-    | hd::tl ->
-       let pat = Pat.var ( { txt = hd ; loc = loc} ) in
-       let e' = create_fn tl e in
-       [%expr fun [%p pat] -> [%e e']]
-    end
-
-  and check_samplers (sampler, type_expr) =
-    (* If the sampler doesn't yet exist, we make it *)
-    (* This should only occur in the example above *)
-    let type_expr = repr type_expr in
-    if not (sampler_exists sampler) then
-      begin match type_expr.desc with
-      | Ttuple ts ->
-         let sampler_names = List.map sampler_name ts in
-         let sampler_expr sampler =
-           let sampler_expr = Exp.ident ( { txt = Lident sampler ; loc = loc } ) in
-           let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
-           Exp.apply sampler_expr [Nolabel, unit_expr]
-         in
-         let sampler_tuple = Exp.tuple (List.map sampler_expr sampler_names) in
-         let sampler_fun = create_fn ["()"] sampler_tuple in
-         let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
-         let sampler = Vb.mk sampler_pattern sampler_fun in
-         register_sampler_fn sampler
-      | Tarrow (_, t1, t2, _) ->
-        let sampler_body =
-          Exp.apply
-            (Exp.ident { txt = Lident "raise" ; loc = loc})
-            [Nolabel,
-             Exp.construct { txt = Lident "Not_implemented" ; loc = loc} None]
-        in
-         let sampler_fun = create_fn ["()"] sampler_body in
-         let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
-         let sampler = Vb.mk sampler_pattern sampler_fun in
-         register_sampler_fn sampler
-      | Tconstr (Path.Pident t, ts, _) ->
-         begin match Ident.name t with
-         | "list" ->
-            let list_sampler = Exp.ident { txt = Lident "sample_list" ; loc = loc } in
-            let sample_from = Exp.ident { txt = Lident (sampler_name @@ List.hd ts) ; loc = loc } in
-            let sampler_body = Exp.apply list_sampler [Nolabel, sample_from] in
-            let unit_expr =  Exp.ident ( { txt = Lident "()" ; loc = loc } ) in
-            let sampler_body' = Exp.apply sampler_body [Nolabel, unit_expr] in
-            let sampler_fun = create_fn ["()"] sampler_body in
-            let sampler_pattern = Pat.var { txt = sampler ; loc = loc } in
-            let sampler = Vb.mk sampler_pattern sampler_fun in
-            register_sampler_fn sampler
-         end
-      | _ -> raise (Not_implemented ("check_samplers :: match desc :: " ^ sampler))
-      end
+  let choose l =
+    if List.length l = 0
+    then raise No_choice
+    else
+      let
+        choice = Random.int (List.length l)
+      in
+      List.nth l choice
   
-end
+  let rec collect_vars type_expr =
+    begin match type_expr.desc with
+    | Tvar _ -> [type_expr]
+    | Tarrow (_, t1, t2, _) ->
+       (collect_vars t1) @ (collect_vars t2)
+    | Ttuple ts ->
+       List.flatten (List.map collect_vars ts)
+    | Tconstr (_, ts, _) ->
+       List.flatten (List.map collect_vars ts)
+    | Tlink t ->
+       collect_vars t
+    | _ -> []
+    end
 
-let sampler_functions () =
-  let open Ast_helper in
-  Str.value Recursive !sampler_fns
+  and instantiate_vars vars =
+    begin match vars with
+    | [] -> []
+    | hd :: tl ->
+       (hd, choose base_types) :: (instantiate_vars tl)
+    end
 
+  and subst_vars var_map type_expr =
+    begin match type_expr.desc with
+    | Tvar _ -> List.assoc type_expr var_map 
+    | Tarrow (lbl, t1, t2, comm) ->
+       {type_expr with desc = Tarrow (lbl, subst_vars var_map t1, subst_vars var_map t2, comm)}
+    | Ttuple ts ->
+       {type_expr with desc = Ttuple (List.map (fun x -> subst_vars var_map x) ts)}
+    | Tconstr (p, ts, abbrev) ->
+       {type_expr with desc = Tconstr (p, List.map (fun x -> subst_vars var_map x) ts, abbrev)}
+    | Tlink t -> subst_vars var_map t
+    | _ -> type_expr
+    end
+      
+  and get_sampler fn_sig argtypes =
+    let fn_sig = Btype.repr fn_sig in
+    let argtypes = List.map (Btype.repr) argtypes in
+    let vars = collect_vars fn_sig in
+    let var_map = instantiate_vars vars in
+    let fn_sig = subst_vars var_map fn_sig in
+    let argtypes = List.map (fun x -> subst_vars var_map x) argtypes in
+    let argtypes' = List.map get_sampler' argtypes in
+    let expr = Exp.tuple argtypes' in
+    (fn_sig,  [%expr fun () -> [%e expr]])
+
+  and get_sampler' type_expr =
+    begin match type_expr.desc with
+    | Tarrow (_, t1, t2, _) ->
+       let exn_msg =
+         Exp.constant
+           (Pconst_string
+              (Format.asprintf "Please provide functions of type %a"
+                 Printtyp.type_expr type_expr, None))
+       in
+       let exn_expr = Exp.construct (ident "Function_sampler") (Some exn_msg) in
+       let raise_expr = Exp.apply (exp_ident "raise") [Nolabel, exn_expr] in
+       [%expr (fun () -> [%e raise_expr]) ()]
+    | Ttuple ts ->
+       let ts_samplers = List.map get_sampler' ts in
+       let tup = Exp.tuple ts_samplers in
+       [%expr (fun () -> [%e tup]) ()]
+    | Tconstr (p, ts, _) ->
+       let name = Path.name p in
+       let sampler_name = "sample_" ^ name in
+       let sampler_args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
+       Exp.apply (exp_ident sampler_name) (sampler_args@[Nolabel, exp_ident "()"])
+    | _ -> raise (Unsupported_operation "get_sampler'")
+    end
+
+  and pass_sampler type_expr =
+    begin match type_expr.desc with
+    | Ttuple ts ->
+       let tup = Exp.tuple @@ List.map get_sampler' ts in
+       [%expr fun () -> [%e tup]]
+    | Tconstr (p, _, _) ->
+       exp_ident @@ "sampler_" ^ (Path.name p)
+    | _ -> print_type_expr (Format.std_formatter) type_expr; raise (Unsupported_operation "Typed.pass_sampler")
+    end
+
+  end

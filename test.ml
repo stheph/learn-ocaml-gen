@@ -128,8 +128,8 @@ let out_file parse_tree typed_tree dir =
   output_file := !output_file @ opens;
   output_file := !output_file @ exns;
   (* output_file := !output_file @ choose_fn; *)
-  Sampler.Untyped.run parse_tree;
-  output_file := !output_file @ [Sampler.sampler_functions ()];
+  let samplers = Sampler.Untyped.run parse_tree in
+  output_file := !output_file @ [samplers];
   output_file := !output_file @ List.map (process_fun) !fn_infos;
   output_file := !output_file @ [gen_main_fn ()];
   let oc = open_out (dir ^ Filename.dir_sep ^ "test.ml") in
