@@ -265,7 +265,7 @@ module Typed = struct
        [%expr fun () -> [%e tup]]
     | Tconstr (p, _, _) ->
        exp_ident @@ "sampler_" ^ (Path.name p)
-    | _ -> print_type_expr (Format.std_formatter) type_expr; raise (Unsupported_operation "Typed.pass_sampler")
+    | _ -> raise (Unsupported_operation "Typed.pass_sampler")
     end
 
   end
