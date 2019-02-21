@@ -264,7 +264,7 @@ module Typed = struct
        let tup = Exp.tuple @@ List.map get_sampler' ts in
        [%expr fun () -> [%e tup]]
     | Tconstr (p, _, _) ->
-       exp_ident @@ "sampler_" ^ (Path.name p)
+       exp_ident @@ "sample_" ^ (Path.name p)
     | _ -> raise (Unsupported_operation "Typed.pass_sampler")
     end
 
