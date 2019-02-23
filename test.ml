@@ -20,25 +20,9 @@ let opens =
 
 let exns =
   [
-    [%stri exception No_choice]; [%stri exception Not_implemented]
-  ]
+    [%stri exception Not_implemented]; [%stri exception Function_sampler of string]
+  ] 
 
-(* Need to include this function to randomly select an element in a list *)
-(* init the random number generator first *)
-let choose_fn =
-  [
-    [%stri let () = Random.self_init () ];
-    [%stri
-     let choose l =
-       if List.length l = 0
-       then raise No_choice
-       else
-         let
-           choice = Random.int (List.length l)
-         in
-         List.nth l choice
-    ];
-  ]
 let exercises : string list ref = ref [] 
 
 let process_fun (fn_info : Typediter.function_info) =
