@@ -146,11 +146,17 @@ module Untyped = struct
     let body =
       begin match pcd_args with
       | Pcstr_tuple ctypes ->
-         let args = List.map call_sampler ctypes in
-         Exp.construct ({ txt = Lident name; loc }) (Some (Exp.tuple args))
+         begin match ctypes with
+         | [] ->
+            Exp.construct ({ txt = Lident name; loc }) None           
+         | _ ->
+            let args = List.map call_sampler ctypes in
+            Exp.construct ({ txt = Lident name; loc }) (Some (Exp.tuple args))
+         end
       | _ -> raise (Unsupported_operation "make_constructor_function")
       end
     in
+    let body = [%expr fun () -> [%e body]] in
     [%expr let [%p pattern] = [%e body] in [%e expr]]
 
   and constructor_pattern name =
