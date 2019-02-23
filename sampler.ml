@@ -99,10 +99,16 @@ module Untyped = struct
        let expr = Exp.apply expr [Nolabel, exp_ident "()"] in
        let expr = List.fold_left make_constructor_function expr constructors in
        Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
-    (* | Ptype_record labels, None ->
-     *    (\* type t = { l1 : T1 ; l2 : T2, ... } *\)
-     *    (\* TODO *\)
-     *    Vb.mk sampler_pattern ([%expr fun () -> ()]) *)
+    | Ptype_record labels, None ->
+       (* type t = { l1 : T1 ; l2 : T2, ... } *)
+       (* TODO *)
+       let lv_pairs =
+         List.map
+           (fun { pld_name = { txt = name ; _ }; pld_type ; _ } -> ({ txt = Lident name; loc }, call_sampler pld_type))
+           labels
+       in
+       let expr = Exp.record lv_pairs None in
+       Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | _ -> raise (Unsupported_operation "make_sampler")
     end
 
