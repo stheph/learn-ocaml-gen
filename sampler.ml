@@ -120,7 +120,7 @@ module Untyped = struct
          if check_rec
          then
            begin
-             Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10  () -> [%e expr]])
+             Vb.mk sampler_pattern @@ sampler_params ([%expr fun ?(size=10)  () -> [%e expr]])
            end
          else Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | Ptype_record labels, None ->
