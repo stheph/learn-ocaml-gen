@@ -99,6 +99,7 @@ module Untyped = struct
     | Ptype_variant constructors, None ->
        (* type t = A | B | C | ... *)
        let check_rec = check_recursive_variant name constructors in
+       if check_rec then recursive_samplers := ("sample_" ^ name) :: !recursive_samplers;
        let constructor_fn_names =
          List.map (fun { pcd_name = { txt = name ; _ } ; _} -> constructor_pattern name) constructors
        in
@@ -109,13 +110,13 @@ module Untyped = struct
          if check_rec
          then
            begin
-             recursive_samplers := ("sample_" ^ name) :: !recursive_samplers;
              Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10  () -> [%e expr]])
            end
          else Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | Ptype_record labels, None ->
        (* type t = { l1 : T1 ; l2 : T2, ... } *)
        let check_rec = check_recursive_record name labels in
+       if check_rec then recursive_samplers := ("sample_" ^ name) :: !recursive_samplers;
        let lv_pairs =
          List.map
            (fun { pld_name = { txt = name ; _ }; pld_type ; _ } -> ({ txt = Lident name; loc }, call_sampler pld_type))
@@ -125,27 +126,31 @@ module Untyped = struct
        if check_rec
        then
          begin
-           recursive_samplers := ("sample_" ^ name) :: !recursive_samplers;
            Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10 () -> [%e expr]])
          end
        else Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | _ -> raise (Unsupported_operation "make_sampler")
     end
 
-
   (* Returns an expression of the form "sample_[type] ()" *)
   and call_sampler ctype =
     begin match ctype.ptyp_desc with
     | Ptyp_constr ({ txt = Lident name ; _ }, ts) ->
        let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
-       let args = args@[Nolabel, exp_ident "()"] in
+       let { pexp_desc = Pexp_ident { txt = Lident sampler_name }} = pass_sampler ctype in
+       let args =
+         if (List.mem sampler_name !recursive_samplers)
+         then
+           args@[(Labelled "size", exp_ident "(size - 1)");(Nolabel, exp_ident "()")]
+         else
+           args@[Nolabel, exp_ident "()"]
+       in
        Exp.apply (pass_sampler ctype) args
     | _ ->
        let sampler_call = pass_sampler ctype in
        let unit_expr = Exp.construct (ident "()") None in
        Exp.apply sampler_call [Nolabel, unit_expr]
     end
-
 
   (* Returns an expression of the form "sample_[type]" *)
   and pass_sampler ctype =
