@@ -179,6 +179,7 @@ module Untyped = struct
        [%expr fun () -> [%e tup]]
     | Ptyp_constr ({ txt = Lident name ; _ }, ctypes) ->
        let args = List.map (fun x -> (Nolabel, pass_sampler x)) ctypes in
+       let args = args@[Nolabel, exp_ident "()"] in
        let main_sampler = exp_ident @@ "sample_" ^ name in
        Exp.apply main_sampler args;
     | _ -> raise (Unsupported_operation "pass_sampler")
