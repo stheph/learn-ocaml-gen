@@ -146,14 +146,20 @@ module Untyped = struct
   and call_sampler ctype =
     begin match ctype.ptyp_desc with
     | Ptyp_constr ({ txt = Lident name ; _ }, ts) ->
-       let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
-       let { pexp_desc = Pexp_ident { txt = Lident sampler_name }} = pass_sampler ctype in
+       let sampler_name =
+         begin match pass_sampler ctype with
+         | {pexp_desc = Pexp_ident { txt = Lident sampler_name} } ->
+            sampler_name
+         | {pexp_desc = Pexp_apply ({pexp_desc = Pexp_ident { txt = Lident sampler_name }},_)} ->
+            sampler_name
+         end
+       in
        let args =
          if (List.mem sampler_name !recursive_samplers)
          then
-           args@[(Labelled "size", exp_ident "(size - 1)");(Nolabel, exp_ident "()")]
+           [(Labelled "size", exp_ident "(size - 1)");(Nolabel, exp_ident "()")]
          else
-           args@[Nolabel, exp_ident "()"]
+           [Nolabel, exp_ident "()"]
        in
        Exp.apply (pass_sampler ctype) args
     | _ ->
@@ -171,8 +177,10 @@ module Untyped = struct
     | Ptyp_tuple ctypes ->
        let tup = Exp.tuple @@ List.map call_sampler ctypes in
        [%expr fun () -> [%e tup]]
-    | Ptyp_constr ({ txt = Lident name ; _ }, _) ->
-       exp_ident @@ "sample_" ^ name
+    | Ptyp_constr ({ txt = Lident name ; _ }, ctypes) ->
+       let args = List.map (fun x -> (Nolabel, pass_sampler x)) ctypes in
+       let main_sampler = exp_ident @@ "sample_" ^ name in
+       Exp.apply main_sampler args;
     | _ -> raise (Unsupported_operation "pass_sampler")
     end
 
