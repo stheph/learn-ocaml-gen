@@ -106,6 +106,16 @@ module Untyped = struct
        let expr = ast_list_of_strings constructor_fn_names in
        let expr = Exp.apply (exp_ident "sample_alternatively") [Nolabel, expr] in
        let expr = Exp.apply expr [Nolabel, exp_ident "()"] in
+       let expr =
+         if check_rec
+         then
+           let expr' = ast_list_of_strings @@ get_terminals name constructors in
+           let expr' = Exp.apply (exp_ident "sample_alternatively") [Nolabel, expr'] in
+           let expr' = Exp.apply expr' [Nolabel, exp_ident "()"] in
+           Exp.ifthenelse [%expr size = 0] expr' (Some expr)
+         else
+           expr
+       in
        let expr = List.fold_left make_constructor_function expr constructors in
          if check_rec
          then
@@ -115,20 +125,20 @@ module Untyped = struct
          else Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | Ptype_record labels, None ->
        (* type t = { l1 : T1 ; l2 : T2, ... } *)
-       let check_rec = check_recursive_record name labels in
-       if check_rec then recursive_samplers := ("sample_" ^ name) :: !recursive_samplers;
+       (* let check_rec = check_recursive_record name labels in
+        * if check_rec then recursive_samplers := ("sample_" ^ name) :: !recursive_samplers; *)
        let lv_pairs =
          List.map
            (fun { pld_name = { txt = name ; _ }; pld_type ; _ } -> ({ txt = Lident name; loc }, call_sampler pld_type))
            labels
        in
        let expr = Exp.record lv_pairs None in
-       if check_rec
-       then
-         begin
-           Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10 () -> [%e expr]])
-         end
-       else Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
+       (* if check_rec
+        * then
+        *   begin
+        *     Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10 () -> [%e expr]])
+        *   end
+        * else *) Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
     | _ -> raise (Unsupported_operation "make_sampler")
     end
 
@@ -201,15 +211,15 @@ module Untyped = struct
     "cnstr_" ^ name
 
   and check_recursive_variant name constructors =
-    let check_constructor { pcd_args } =
-      begin match pcd_args with
-      | Pcstr_tuple ctypes ->
-         List.mem true (List.map (check_recursive name) ctypes)
-      | Pcstr_record labels ->
-         check_recursive_record name labels
-      end
-    in
-    List.mem true (List.map check_constructor constructors)
+    List.mem true (List.map (check_constructor name) constructors)
+
+  and check_constructor name { pcd_args } =
+    begin match pcd_args with
+    | Pcstr_tuple ctypes ->
+       List.mem true (List.map (check_recursive name) ctypes)
+    | Pcstr_record labels ->
+       check_recursive_record name labels
+    end
   (* Just checks if the type name occurs in its constructors *)
   and check_recursive_record name labels =
     let check_label name { pld_type } =
@@ -226,6 +236,16 @@ module Untyped = struct
        (name = name') || (List.mem true (List.map (check_recursive name) ctypes))
     | _ -> false
     end
+
+  and get_terminals name constructors =
+    let rec get_terminals' name constructors =
+      begin match constructors with
+      | [] -> []
+      | hd :: tl ->
+         if check_constructor name hd then get_terminals' name tl else hd :: (get_terminals' name tl)
+      end
+    in
+    List.map (fun { pcd_name = { txt = name' } ; _ } -> constructor_pattern name') (get_terminals' name constructors)
       
   let run parse_tree =
     type_decl_iterator.structure type_decl_iterator parse_tree;
