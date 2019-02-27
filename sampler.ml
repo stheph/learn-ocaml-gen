@@ -210,7 +210,14 @@ module Untyped = struct
             let args = List.map call_sampler ctypes in
             Exp.construct ({ txt = Lident name; loc }) (Some (Exp.tuple args))
          end
-      | _ -> raise (Unsupported_operation "make_constructor_function")
+      | Pcstr_record labels ->
+                let lv_pairs =
+                  List.map
+                    (fun { pld_name = { txt = name ; _ }; pld_type ; _ } -> ({ txt = Lident name; loc }, call_sampler pld_type))
+                    labels
+                in
+                let expr = Exp.record lv_pairs None in
+                Exp.construct ({txt = Lident name ; loc}) (Some expr)
       end
     in
     let body = [%expr fun () -> [%e body]] in
