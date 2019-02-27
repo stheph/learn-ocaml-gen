@@ -62,7 +62,7 @@ I store the data provided by the \verb+let%meta+ declarations into a record, whi
 These two files are basically the same, with just one key difference. All the \verb+let%prelude+ and \verb+let%prepare+ declarations are loaded into the exercise environment, giving the student access to whatever data types or functions declared in Learn OCaml's toplevel. The key difference is that the prelude declarations are exposed to the student, while prepare declarations are hidden, which gives the writer of the exercise some amount of control over what a student can use, for example, by shadowing the definition of a library function to prevent the student from using it (like to stop a student from defining a list reverse function using OCaml's own \verb+List.rev+ function).
 
 \section{Exercises}
-I refer to the handling of \verb+template.ml+ and \verb+solution.ml+ under the joined heading "Exercises". I use the same ppx extension \verb+[%erase ...]+ for both files. In \verb+template.ml+, any code within the \verb+[%erase ...]+ extension will be replaced by a \verb+Not_implemented+ exception, while the extension is just stripped away in the \verb+solution.ml+ file. Note that \textit{only} functions which have been erased will show up in the solution file (I assume that these are the only functions which need to be written for the exercise).
+I refer to the handling of \verb+template.ml+ and \verb+solution.ml+ under the joined heading "Exercises". I use the same ppx extension \verb+[%erase ...]+ for both files. In \verb+template.ml+, any code within the \verb+[%erase ...]+ extension will be replaced by a \verb+Not_implemented+ exception, while the extension is just stripped away in the \verb+solution.ml+ file. Using the \verb+[%erase ...]+ extension also allows us to erase individual branches, rather than the whole function body, in case one would like to, for example, provide the base case and have the student fill in a step case. Note that \textit{only} functions which have been erased will show up in the solution file (I assume that these are the only functions which need to be written for the exercise).
 
 \section{Testing}
 The testing phase is the most interesting portion.
@@ -113,9 +113,9 @@ let rec sample_tree sample_a ?(size=10) () =
   else (sample_alternatively [constr_Tree; constr_Leaf]) ()
 \end{lstlisting}
 
-Since the type \verb+tree+ is also recursive, we pass the additional optional parameter size, which will bound the size of the tree. The recursive check is just a simple check to see if the name of the type occurs in any of its constructors, and for the constructors for which this is not true, we collect them as "terminal constructors", constructors which can be called upon once the size parameter reaches zero.
+Since the type \verb+tree+ is also recursive, we pass the additional optional parameter size, which will bound the size of the tree. The recursive check is just a simple check to see if the name of the type occurs in any of its constructors. For the constructors for which this is not true, we collect them as "terminal constructors" which can be called upon once the size parameter reaches zero.
 
-My tool also passes the annotated solution file (stripped of its annotations), to OCaml's type checker, exposing to us additional type information, which allows us to choose the appropriate sampler to produce the values necessary for a function's inputs, but also allows us generate more sampler for values of types that were not declared above, like products of types.
+My tool also passes the annotated solution file (stripped of its annotations), to OCaml's type checker, exposing to us additional type information, which allows us to choose the appropriate sampler to produce the values necessary for a function's inputs, but also allows us generate anonymous samplers for values of types that were not declared above, like products of types.
 
 For example, take the uncurried addition function \verb+plus+ as follows:
 \begin{lstlisting}
@@ -153,7 +153,7 @@ The tool will also generate these test cases for the exercise writer. In order t
 
 First, we traverse the typed AST to collect information about each function (but only those which we earlier tagged from the Exercise section). For each function, we record the function's name, its signature, the type of each argument, and the number of arguments.
 
-Finally, in order to fill out the sampler argument for each test case, we proceed similarly to the generation of tuple samplers. Now, in order to invoke the appropriate sampler for each function, we use the types of the arguments to retrieve the correct sampler. The value we send to $\sim$\verb+sampler+ is just an anonymous function that returns a tuple of invocations of the correct sampler for each argument.
+Finally, in order to fill out the sampler argument for each test case, we proceed similarly to the generation of tuple samplers. In order to invoke the appropriate sampler for each function, we use the types of the arguments to retrieve the correct sampler. The value we send to $\sim$\verb+sampler+ is just an anonymous function that returns a tuple of invocations of the correct sampler for each argument. Note that for types parameterized by type variables, we also randomly choose one type (of \verb+int+, \verb+bool+, and \verb+string+) to instantiate the type variable with, and only this instantiation will be tested.
 
 Then we place all the test cases in the template for the test file, which will end up with references to necessary modules for the Learn OCaml grader, the samplers, the test cases, and finally the function which checks the ast and invokes all the test cases.
 
@@ -161,7 +161,7 @@ Then we place all the test cases in the template for the test file, which will e
 This tool generates all the files necessary to create an exercise for the Learn OCaml platform. While it's lacking in some features, I believe it goes further than the official learn-ocaml-autogen project. As it stands, the tool generates quite a bit of the \verb+test.ml+ file such that it would not be too difficult or time consuming to go in and make small changes if necessary, with the automatic creation of samplers already alleviating much of the exercise writer's work in creating the test file. I believe that this is a strong proof of concept that something like a so-called "one-click" generation tool is quite possible.
 
 \subsection{Future Work}
-The second biggest hurdle is defining some way to restrict values, which addresses two problems. In the first case, just generating incorrect values. For example, generating negative numbers when the function we are testing makes use of the square root function, or generating zeros when that argument would be used as divisor. It would be nice if we could disallow certain arguments, or even favor some others, for example, for some function which tests some property, we may only ever generate values for which the property fails, which isn't in itself all bad, but we might like to generate cases for at least one success and one failure.
+The biggest hurdle is defining some way to restrict values. For example, generating negative numbers when the function we are testing makes use of the square root function, or generating zeros when that argument would be used as divisor. It would be nice if we could disallow certain arguments, or even favor some others, for example, for some function which tests some property, we may only ever generate values for which the property fails, which isn't in itself all bad, but we might like to generate cases for at least one success and one failure.
 
 One way to address this may be to use OCaml's attributes extension to tag certain arguments, for example, something like:
 
