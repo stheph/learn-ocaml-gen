@@ -363,8 +363,10 @@ module Typed = struct
     | Ttuple ts ->
        let tup = Exp.tuple @@ List.map get_sampler' ts in
        [%expr fun () -> [%e tup]]
-    | Tconstr (p, _, _) ->
-       exp_ident @@ "sample_" ^ (Path.name p)
+    | Tconstr (p, ts, _) ->
+       let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
+       let main_sampler = exp_ident @@ "sample_" ^ (Path.name p) in
+       Exp.apply main_sampler args
     | _ -> raise (Unsupported_operation "Typed.pass_sampler")
     end
 
