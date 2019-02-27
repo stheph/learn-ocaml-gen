@@ -179,7 +179,7 @@ module Untyped = struct
        [%expr fun () -> [%e tup]]
     | Ptyp_constr ({ txt = Lident name ; _ }, ctypes) ->
        let args = List.map (fun x -> (Nolabel, pass_sampler x)) ctypes in
-       let args = args@[Nolabel, exp_ident "()"] in
+       (* let args = args@[Nolabel, exp_ident "()"] in *)
        let main_sampler = exp_ident @@ "sample_" ^ name in
        Exp.apply main_sampler args;
     | _ -> raise (Unsupported_operation "pass_sampler")
@@ -327,9 +327,12 @@ module Typed = struct
     let fn_sig = Btype.repr fn_sig in
     let argtypes = List.map (Btype.repr) argtypes in
     let vars = collect_vars fn_sig in
+
+    (* This is where we choose (randomly) the types to instantiate type variables with *)
     let var_map = instantiate_vars vars in
     let fn_sig = subst_vars var_map fn_sig in
     let argtypes = List.map (fun x -> subst_vars var_map x) argtypes in
+
     let argtypes' = List.map get_sampler' argtypes in
     let expr = Exp.tuple argtypes' in
     (fn_sig,  [%expr fun () -> [%e expr]])
