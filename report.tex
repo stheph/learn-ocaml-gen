@@ -1,172 +1,128 @@
 % !TEX TS-program = pdflatex
 % !TEX encoding = UTF-8 Unicode
 
-% This is a simple template for a LaTeX document using the "article" class.
-% See "book", "report", "letter" for other types of document.
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
 
-\documentclass[11pt]{article} % use larger type; default would be 10pt
+\usepackage{geometry}
+\geometry{a4paper}
 
-\usepackage[utf8]{inputenc} % set input encoding (not needed with XeLaTeX)
-
-%%% Examples of Article customizations
-% These packages are optional, depending whether you want the features they provide.
-% See the LaTeX Companion or other references for full information.
-
-%%% PAGE DIMENSIONS
-\usepackage{geometry} % to change the page dimensions
-\geometry{letterpaper} % or letterpaper (US) or a5paper or....
-% \geometry{margin=2in} % for example, change the margins to 2 inches all round
-% \geometry{landscape} % set up the page for landscape
-%   read geometry.pdf for detailed page layout information
-
-\usepackage{graphicx} % support the \includegraphics command and options
-
-\usepackage[parfill]{parskip} % Activate to begin paragraphs with an empty line rather than an indent
-
-%%% PACKAGES
-\usepackage{booktabs} % for much better looking tables
-\usepackage{array} % for better arrays (eg matrices) in maths
-% These packages are all incorporated in the memoir class to one degree or another...
+\usepackage[parfill]{parskip}
 
 \usepackage{listings}
 
-%%% END Article customizations
-
-%%% The "real" document content comes below...
+\lstset{
+   language=[Objective]{Caml}
+}
 
 \title{A Generator for Learn OCaml Exercises}
 \author{Steven Thephsourinthone}
-%\date{} % Activate to display a given date or no date (if empty),
-         % otherwise the current date is printed 
 
 \begin{document}
 \maketitle
 
 \section{Introduction}
-The Learn OCaml platform provides a nice, quick and easy way for a student to, well, learn OCaml. As an in-browser tool, it bypasses the necessity of a student having to install OCaml which is already quite a large benefit, since it can get quite messy, depending on operating system. Besides the easy access to an OCaml interpreter via Learn OCaml's integrated top level, a student is also given access to instant feedback to their attempts to solve exercises, with an included grader that produces a report the student can quickly look through, showing common errors, like type errors, and test cases.
+The Learn OCaml \cite{canou2017scaling} platform provides a nice, quick, and easy way for a student to learn functional programming in OCaml. As an in-browser tool, it bypasses the necessity of a student having to install OCaml, which is a huge beneft in itself since the installation process can get quite messy, depending on the student's operating system. Learn OCaml gives the student access to an OCaml interpreter via Learn OCaml's integrated top level allowing the student to easily try and use OCaml. Additionally, Learn OCaml provides an exercise platform which allows the instructor to create interactive exercises which provide the student with instant feedback through a report that the student can look through and see where they may have made errors, highlighting common ones like type errors, while showing the student the test cases used by the grader.
 
-Another advantage of the system is on the instructor's end, in this case, specifically for the growing class sizes for McGill's Programming Languages and Paradigms course. With hundreds of students, it becomes more and more difficult to grade assignments. Though there have been grading scripts in the past that worked fairly well, I believe transitioning to using the Learn OCaml platform as a means for students to practice and do exercises would be a great benefit, which also frees up instructor and TA time. WIth the additional time, TAs could hold tutorials with smaller groups of students, which I believe to be much more helpful in the learning process than doing assignments alone.
+Another advantage to having such a platform is that the instructor of such a course may delegate assignments to the Learn OCaml platform and free up time for the instructor and teaching assistants that they may better use to help students with their understanding of the course material. This is a direct benefit to our Programming Languages and Paradigms course at McGill, which has grown to hundreds of students, making manual grading rather cumbersome. In the past, grading scripts have been used, but the grading system used by Learn OCaml is much simpler to use.
 
-In order to facilitate a transition towards using the Learn OCaml platform, or something like it, this paper introduces a tool which can generate all the necessary files which constitute a Learn OCaml platform exercise. Since solutions are already written, it doesn't take much more effort to push the exercise onto the Learn OCaml platform, we need only to add some simple annotations to the solution file.
+In order to facilitate the use of the Learn OCaml platform, it would help to have a tool which can generate all the files that an exercise requires from a single solution file. The creators of Learn OCaml have provided a tool, Learn OCaml autogen, but it is somewhat lacking in the most important area, the automatic generation of the grader. In this report, I present my own generator which includes the automatic generation of samplers, which generate values for test cases, as well as a more thorough generator for the test file, using only a single, annotated solution file.
+
+\section{Background}
+\subsection{OCaml MOOC}
+First concieved in 2014, the OCaml Massive Open Online Course (MOOC) has been running one a year since 2015. The goals of the course were to familiarize the students with three key aspects of languages from the ML family, namely functional programming, static typing with type inference, and algebraic data types. Thus, the point of the course was not to rank students based on their marks, but to ensure that all who completed the course demonstrated some level of mastery over these aspects and could write medium-sized OCaml programs.
+
+With a massive online course comes a number of challenges, like the wide variety of students, having different backgrounds, the learning environment, and how exactly to evaluate the students. It was decided that there were two key points that should be addressed: one, that every student had the same development and exercise environment, and two, that the students could recieve quick feedback through automatic evaluation. In order to make the learning enviroment consistent, a browser-based solution was chosen, which alleviated the burden of having to install OCaml from the students, and gave them quick and easy access to an OCaml interpreted that they could use to practice. This led to the development of the Learn OCaml platform.
+
+\subsection{Learn OCaml}
+
+\subsubsection{Exercise Environment}
+In the exercise environment, the student is offered many helpful tools for writing OCaml programs. There is access to an OCaml toplevel intepreter, which allows the student to experiment with various OCaml functions and a text editor in which the student can write code, which can then be loaded into the toplevel that lets the student self-evaluate a bit the correctness of their code. The student can also check their code for syntax and type errors, and finally, in an exercise, they may submit their code for grading, which generates a lengthy report on the student's code that they can examine to write corrections if necessary.
+
+On the instructor's end,  setting up exercises to evaluate the students' progress is a fairly simple process, requiring six source files to define each exercise. First, the instructor must provide a descripton of the exercise, which was placed as an HTML fragment in the file \verb+descr.html+ (and now a Markdown file is also acceptable). A metadata file, \verb+meta.json+, should also be provided, giving the student information on things like difficulty and contact information they could use to get help. Next, \verb+prelude.ml+ and \verb+prepare.ml+ must be provided which load the necessary preliminaries into the student's exercise environment, like type declarations or helper functions, with the contents of \verb+prepare.ml+ being hidden from the student, allowing for things like shadowing library functions to prevent the student from using them as their solution (for example, using OCaml's \verb+List.rev+ as a solution to a list reversal question). Then, \verb+template.ml+ loads a template for the exercise into the student's exercise environment. A \verb+solution.ml+ file is required to evaluate the student's code against. Finally, a \verb+test.ml+ file is needed, which contains a test suite for evaluating the student. These format of these files lends itself quite nicely to automatic generation from a single file, the solution, which will be explored later on.
+
+\subsubsection{Graders}
+Learn OCaml provides the instructor with a variety of predefined graders that can be composed to evaluate an exercise. The instructor may evaluate a student's code against a solution via test cases or even check for syntatic constructions used in the student's code. The grading system uses a combination of static typing and forced pattern matching to catch most errors at compile time, which is a stark difference to other systems that first test the grader on sample submissions to gain some level of confidence in the grader, and then perhaps still find bugs after deployment. With the high level of confidence Learn OCaml's grader gives, one can update the grader to change test cases or change grading policies that may have been incorrect without worry. The exercise writer need not worry about implementing this when writing graders as a number of high level functions are available which parameterize this lower level grader code.
+
+\subsubsection{Cheating}
+As with any course, there is a possibility of cheating. First, the Learn OCaml exercise environment lives entirely within the student's browser, it is entirely possible that a dishonest student may reverse engineer the exercise environment to have the grader report the maximum possible score. This turned out to be a non-issue in the OCaml MOOC, however, as a elective course whose goal leans more towards teaching, the students who take the course may be far less interested in circumventing the course's grading scheme. This may turn out to be more of an issue in a mandatory course setting, however it is also quite easy to run the graders on the student's code offline to verify the marks the online grader gave them.
+
+A second avenue of cheating lies in the test suite. If the test suite used the same test cases every time, a student may tailor their code specifically to get the results desired from these few test cases. To alleviate this, all test cases are randomly generated each time the student has the exercise environment evaluate their code.
 
 \section{Preliminaries}
-Before the user is dropped into the exercise environment, information is loaded from three files, \verb+meta.json+, \verb+prelude.ml+, and \verb+prepare.ml+, which I will refer to as "preliminaries". I take a cue from the official learn-ocaml-autogen project here, and as they do, I use the \verb+let%extension+ construct to annotate declarations with their intended destinations. \verb+let%meta+ allows us to populate the fields of the \verb+meta.json+ file, while similar constructs to this exist for both \verb+prelude.ml+ and \verb+prepare.ml+, going beyond lets to type declarations and open statements as well.
+Before the student is dropped into the exercise environment, information is loaded from three files, \verb+meta.json+, \verb+prelude.ml+, and \verb+prepare.ml+, here referred to as the \textit{preliminaries}. In this section, I take some cues from the official autogen project, and as they do, we use a ppx extension of the form \verb+let%{file}+, which annotate declarations with their intended destinations, for example, declarations starting with \verb+let%meta+ will put the information into the appropriate fields in the \verb+meta.jsob+ metadata file.
 
 \subsection{meta.json}
+This file contains metadata about the exercise, which provide information on things like difficulty, the author of the exercise (as well as their contact information), and what sort of knowledge is required for the exercise.
 
-This file contains all the meta data about an exercise which is stored in a JSON file and loaded into its environment. The first notable field is the \verb+learnocaml_version+, of which there are currently two. The later of the two increases the amount of meta data tracked by \verb+meta.json+. The full specification for \verb+meta.json+ is shown below, as an OCaml record type:
-
-\begin{lstlisting}
-  type meta_data =
-    {
-      learnocaml_version : string;
-      kind : string option;
-      stars : int option;
-      title : string option;
-      identifier : string;
-      authors : string list option; (* ERROR *)
-      focus : string list option;
-      requirements : string list option;
-      forward_exercises : string list option;
-      backward_exercises : string list option;
-      max_score : int option
-    }
-
-\end{lstlisting}
-
-Currently, most of the fields are defined as options, but this is not necessary. Within the generator tool, there is now a default that is updated with new information from the user, meaning any missing fields will be filled in with default values. There is also currently an error, which is that the \verb+authors+ field should actually be of type \verb+string list list option+ (or \verb+(string * string) option+, if acceptable by the JSON library I use. The reason for this is that each author entity is actually both the name of the author as well as their email address, which as a JSON object is a list of two element lists.
-
-The fields describe information that may be useful to the student. For example, with the authors field, a student may contact one of the authors of the assignment for aid, if necessary. The \verb+focus+, \verb+requirements+, \verb+forward_exercises+, and \verb+backward_exercises+ are cues to the student about things they may need to brush up on, with \verb+focus+ being the areas which the exercise touches upon, \verb+requirements+ being prerequisite knowledge, and the two exercise fields indicate chains of exercises, forward being an ordering of exercises to attempt if the student is doing well, and backwards being exercises to fall back on if the student is doing poorly.
-
-In the nuts and bolts of this section, we traverse the AST of the program and collect all the \verb+let%meta+ declarations. From there, we traverse each individual declaration to obtain the name of the variable bound as well as the value bound to the variable.
-
-Gathering the values bound to each variable is done a bit dangerously. First off, each field is hard-coded into the tool, as well as the corresponding AST node for its value. If the value is not of the correct type of constant, which can be \verb+int+, \verb+float+, \verb+string+, or \verb+char+, this process will fail automatically, which I accomplish by attempting a let binding of the value's AST node in a try-with construct.
-
-The most dangerous part would be the handling of lists, however. A list is a branch of the AST with the cons operator (\verb+::+) at the root, with one element on the left, and another list on the right. I define a type \verb+mightbe+, which allows me to indiscriminately toss elements into a list regardless of whether they actually have the same type or not (that is, whether the nodes themselves are all the same kind of constant). I then determine the type of the list by checking that all the elements are the same kind of constant node, and returning the appropriate OCaml list. We only really needed to be concerned with lists of strings, however I did this in a more general fashion in case it becomes necessary to use this on other lists as well.
-
-Finally, we use the \verb+ppx_deriving+ library, which is inspired by Haskell's \verb+deriving+ functionality, to handle the rest of the work. The record type is annotated with the attribute \verb+[@@deriving yojson]+, which generates the appropriate functions for serialization and deserialization of the object using the yojson library, which handles the creation of the final \verb+meta.json+ file.
+I store the data provided by the \verb+let%meta+ declarations into a record, which is seralized via the \verb+ppx_deriving+ and \verb+yojson+ libraries, and written to the \verb+meta.json+ file.
 
 \subsection{prelude.ml and prepare.ml}
-
-There is not much to be said of these files, but they should end up holding most of the top level declarations defined in the input file. Both files are loaded into the testing environment before the student is dropped in, giving them access to the contents on Learn OCaml's toplevel interpreter, but the difference is, the contents are \verb+prelude.ml+ are exposed to the student, while \verb+prepare.ml+ is not. The hidden \verb+prepare.ml+ gives the administrator a certain amount of control over what the student can access, for example, by overshadowing a library function to prevent the student from using it.
+These two files are basically the same, with just one key difference. All the \verb+let%prelude+ and \verb+let%prepare+ declarations are loaded into the exercise environment, giving the student access to whatever data types or functions declared in Learn OCaml's toplevel. The key difference is that the prelude declarations are exposed to the student, while prepare declarations are hidden, which gives the writer of the exercise some amount of control over what a student can use, for example, by shadowing the definition of a library function to prevent the student from using it (like to stop a student from defining a list reverse function using OCaml's own \verb+List.rev+ function).
 
 \section{Exercises}
-The handling of \verb+template.ml+ and \verb+solution.ml+ is done under the heading of "Exercises". Both are similar, with just one key difference.
-
-First we define an extension \verb+erase+, now any code contained with in \verb+[%erase ... ]+ will be replaced by the string "YOUR CODE HERE", in the case of \verb+template.ml+, or for \verb+solution.ml+, replaced by the code itself, stripping away the extension, but also tracking which functions had uses of \verb+erase+. This will allow us to retain information about which functions are part of the exercise and which were defined for the benefit of the student, which will be lost in the next phase.
+I refer to the handling of \verb+template.ml+ and \verb+solution.ml+ under the joined heading "Exercises". I use the same ppx extension \verb+[%erase ...]+ for both files. In \verb+template.ml+, any code within the \verb+[%erase ...]+ extension will be replaced by a \verb+Not_implemented+ exception, while the extension is just stripped away in the \verb+solution.ml+ file. Note that \textit{only} functions which have been erased will show up in the solution file (I assume that these are the only functions which need to be written for the exercise).
 
 \section{Testing}
-
-The generation of \verb+test.ml+ is the most interesting portion.
+The testing phase is the most interesting portion.
 
 \subsection{Samplers}
 Learn OCaml uses "samplers" to generate random values for test cases, with ones for basic types, as well as lists and option types predefined as part of their test library. A sampler function of some type \verb+'a+ takes \verb+unit+ and returns a value of type \verb+'a+. However, for types defined by the writer of the assignment, they must manually write samplers to generate random values for testing.
 
-I alleviate this burden from the writer by using the \textit{type declarations} to generate random sampling functions, inspired by the Haskell's QuickCheck, plus its Arbitrary and Gen type classes. The explanation of the process follows below, along with a example.
+I alleviate this burden from the writer by using the \textit{type declarations} to generate random sampling functions, inspired by the Haskell's QuickCheck \cite{claessen2011quickcheck}, plus its Arbitrary and Gen type classes. The explanation of the process follows below, along with a example.
 
-Let's take the basic (polymorphic) tree type defined below.
+From the corresponding AST node, we have access to the type (its name), as well as its constructors and the types each of the constructors' arguments. This gives us a lot of power.
+
+First let's take a look at a very simple type, \verb+suit+ representing the suits of trading cards.
+
+\begin{lstlisting}
+type suit = Spades | Hearts | Clubs | Diamonds
+\end{lstlisting}
+
+For each constructor, I create a function which constructs it, and then the sampler will choose one of these functions to invoke, using Learn OCaml's \verb+sample_alternatively+, giving us some random value of this type. The sampler function looks a little bit like this:
+
+\begin{lstlisting}[basicstyle=\footnotesize]
+let rec sample_suit () =
+  let constr_Spades () = Spades in
+  let constr_Hearts () = Hearts in
+  let constr_Clubs () = Clubs in
+  let constr_Diamonds () = Diamonds in
+  (sample_alternatively
+      [constr_Spades;constr_Hearts;constr_Clubs;constr_Diamonds]) ()
+\end{lstlisting}
+
+Then, let's take the basic (polymorphic) tree type defined below.
 
 \begin{lstlisting}
 type 'a tree = Tree of 'a tree * 'a tree | Leaf of 'a
 \end{lstlisting}
 
-From the corresponding AST node, we have access to the type (its name), as well as its constructors and the types each of the constructors' arguments. This gives us a lot of power.
+Since tree is parameterized by the type variable \verb+'a+, we take a cue from Learn OCaml's existing samplers here, which is to pass a sampler that may generate values of some type which will instantiate \verb+'a+ (for example, Learn OCaml's \verb+sample_list+ takes a sampler as an argument for the values that will populate the list, as the sampler passed to \verb+sample_tree+ will populate the tree).
 
-However, in this case, the first step we must take is instantiating the type variable with a concrete type, since we obviously cannot generate a value of type \verb+'a+. I choose three specific base types to generate samplers for, \verb+int+, \verb+bool+, and \verb+string+.
-
-The instantiation process is purely a tree transformation. Working with one type declaration at a time, first, I collect each type variable, and we map from the list of types to a list where each type is paired with a single type variable, so in this case it's a little something like this:
+So our sampling function here looks a little something like this:
 
 \begin{lstlisting}
-  List.map
-  (fun x ->
-       List.map
-           (fun y -> (x, y)) [int;bool;string]) ['a]
-  = [('a, int);('a, bool);('a, string)]
+let rec sample_tree sample_a () =
+  let constr_Tree () = Tree (sample_a (), sample_a()) in
+  let constr_Leaf () = Leaf (sample_a ()) in
+  (sample_alternatively [constr_Tree; constr_Leaf]) ()
 \end{lstlisting}
 
-The next step after this, in general, would be to take the Cartesian product of these lists of assignments for all type variables (though, in this case, we just have the one). However, in order to do an arbitrary product, since we can't have one function which generates lists of arbitrary n-ary tuples, each product is instead represented by a list.
+My tool also passes the annotated solution file (stripped of its annotations), to OCaml's type checker, exposing to us additional type information, which allows us to choose the appropriate sampler to produce the values necessary for a function's inputs, but also allows us generate more sampler for values of types that were not declared above, like products of types.
 
-Now, we take each set of type variable assignments (a \textit{type map}), and we create duplicates of the type declaration with the variables replaced by their assigned type. So in this case we would have:
+For example, take the uncurried addition function \verb+plus+ as follows:
+\begin{lstlisting}
+let rec plus (x, y) = x + y
+\end{lstlisting}
+
+From the type checked abstract syntax tree, we can see the function takes as input a tuple of type \verb+int * int+, but since it was not previously defined in some type declaration statement, there is no sampler for it, but while generating the test file, we create more samplers from the typed abstract syntax tree, creating for us the sampler below:
 
 \begin{lstlisting}
-  type int tree =
-       Tree of int tree * int tree | Leaf of int
-  type bool tree =
-       Tree of bool tree * bool tree| Leaf of bool
-  type string tree =
-       Tree of string tree * string tree | Leaf of string
+let rec sample_int_int = (sample_int (), sample_int ())
 \end{lstlisting}
-
-Now we create one sampler for each of these duplicates. The name of each sampler is prefixed with \verb+"sample_"+, followed by the name of the type joined together by underscores, so from the three above, we would create the samplers: \verb+sample_int_tree+, \verb+sample_bool_tree+, and \verb+sample_string_tree+.
-
-Now to actually define the samplers is easy. First, we create nodes for each constructor, as if it was being invoked normally, as in some user's code and then ased on the argument types for each constructor, we pass to it the corresponding sampler. So for \verb+int tree+, we would have:
-
-\begin{lstlisting}
-  Tree (sample_int_tree (), sample_int_tree ())
-  Leaf (sample_int ())
-\end{lstlisting}
-
-Then, in order to invoke these constructors, I choose to create functions, like so:
-
-\begin{lstlisting}
-  let tree () = Tree (sample_int_tree (), sample_int_tree ()) in
-  let leaf () = Leaf (sample_int ()) in ...
-\end{lstlisting}
-
-Finally, I create a list of these constructor functions, and use a function \verb+choose+, which randomly chooses an element of a list, which chooses one of the functions and applies it to \verb+()+ in order to generate a random value of type \verb+int tree+. The full function looks a little something like this:
-
-\begin{lstlisting}
-  let rec sample_int_tree () =
-      let tree () =
-         Tree (sample_int_tree (), sample_int_tree ()) in
-      let leaf () = Leaf (sample_int ()) in
-      (choose [tree; leaf]) ()
-\end{lstlisting}
-
-The example above doesn't demonstrate this, but note that I chose to make all generated sampler functions mutually recursive to pre-empt the possibility of mutually recursive types.
 
 \subsection{Generating Tests}
-The most important part of each set of Learn OCaml exercise files is the \verb+test.ml+. The full features of the testing suite are beyond this tool (hopefully, for now), but they include things like an AST checker, which somewhat in the vein of aspect oriented programming allows you to tag certain AST nodes and perform certain pre-defined actions, for example, you can forbid a student from using the keyword \verb+Open+ to invoke an external module.
+The most important part of each set of Learn OCaml exercise files is the \verb+test.ml+. The full features of the testing suite are beyond this tool (hopefully, only for now), but they include things like an AST checker, which somewhat in the vein of aspect oriented programming allows you to tag certain AST nodes and perform certain pre-defined actions, for example, you can forbid a student from using the keyword \verb+Open+ to invoke an external module.
 
 This tool is currently focused on just grading the student's solution against the solution provided by the exercise writer. Thanks to the sampler generation above, generating the \verb+test.ml+ file is simply a composition of all the bits and pieces we've collected thus far.
 
@@ -184,22 +140,18 @@ The basic test case has the form below:
   )
 \end{lstlisting}
 
-By convesion, I choose to name each test case as the name of the function being tested prefixed by \verb+exercise_+. 
+By convention, I choose to name each test case as the name of the function being tested prefixed by \verb+exercise_+. 
 
 The tool will also generate these test cases for the exercise writer. In order to do this, we must invoke OCaml's type checker (using the function \verb+Typemod.type_structure+) on the student's code, and the rest of the generation proceeds using OCaml's \verb+Typedtree+ AST.
 
 First, we traverse the typed AST to collect information about each function (but only those which we earlier tagged from the Exercise section). For each function, we record the function's name, its signature, the type of each argument, and the number of arguments.
 
-Just like with the generation of the samplers above, we also do an instantiation of type variables in this phase, though it proceeds a bit differently due to the structure of the \verb+Typedtree+ AST and the \verb+type_expr+ types vs the untyped AST's \verb+core_type+ types, with some complications like the need to use the \verb+repr+ function, which provides the canonical representation of a type. We also have to perform the same instantiation on the function's type signature, which is how we get the type string that is placed in the \verb+[%ty: ... ]+ extension. We also only choose one type for each type variable, rather than doing three each and taking the cross product and creation a large amount of sets of type assignments.
+Finally, in order to fill out the sampler argument for each test case, we proceed similarly to the generation of tuple samplers. Now, in order to invoke the appropriate sampler for each function, we use the types of the arguments to retrieve the correct sampler. The value we send to \verb+~sampler+ is just an anonymous function that returns a tuple of invocations of the correct sampler for each argument.
 
-Now, in order to invoke the appropriate sampler for each function, we use the types of the arguments. Much like above, we just use the type to invoke the sampler with the appropirate name. There exists one major complication here, however, which is the presence of tuples as arguments. Since these were (most likely) not defined via type declaration, we have to then generate samplers for these types as well. In order to verify the presence of the appropriate samplers, We record all the samplers we've created thus far, and check if this new type has a sampler. Otherwise, we generate a sampler much like above, with a tuple of type \verb+T1 * T2 * ... * TN+ creating a sampler \verb+sample_T1_T2_..._TN+, which takes unit and returns a tuple where each element is an invocation of the appropriate sampler function(\verb+sample_T1_T2_..._TN () = (sample_T1,sample_T2,...,sample_TN)+).
-
-Finally, in order to fill out the sampler argument for each test case, we proceed similarly to the generation of tuple samplers. The value we send to \verb+~sampler+ is just an anonymous function that returns a tuple of invocations of the correct sampler for each argument.
-
-Then we place all the test cases in the template for the test file, which will end up with references to necessary modules for the Learn OCaml grader, the definition of my \verb+choose+ function, the samplers, the test cases, and finally the function which checks the ast and invokes all the test cases.
+Then we place all the test cases in the template for the test file, which will end up with references to necessary modules for the Learn OCaml grader, the samplers, the test cases, and finally the function which checks the ast and invokes all the test cases.
 
 \section{Conclusion}
-This tool generates all the files necessary to create an exercise for the Learn OCaml platform. While it's lacking in some features, I believe it goes further than the official learn-ocaml-autogen project. As it stands, the tool generates quite a bit of the \verb+test.ml+ file such that it would not be too difficult or time consuming to go in and make small changes if necessary. I believe that this is a strong proof of concept that something like a so-called "one-click" generation tool is quite possible.
+This tool generates all the files necessary to create an exercise for the Learn OCaml platform. While it's lacking in some features, I believe it goes further than the official learn-ocaml-autogen project. As it stands, the tool generates quite a bit of the \verb+test.ml+ file such that it would not be too difficult or time consuming to go in and make small changes if necessary, with the automatic creation of samplers already alleviating much of the exercise writer's work in creating the test file. I believe that this is a strong proof of concept that something like a so-called "one-click" generation tool is quite possible.
 
 \subsection{Future Work}
 The biggest hurdle the tool has to overcome to be moderately useful is probably the addition of generating arbitrary functions. Under normal conditions, I believe this to be quite a difficult challenge, however in the case at hand, we have complete control over the values generated, such that we could easily create arbitrary functions over fixed inputs and outputs. For example, if we had some function with type \verb+int -> string+, we can easily generate a set of integers and a set of strings and abritrarily define a function that takes one member of the int set and produces one member of the string set, and Learn OCaml test cases are able to take hard-coded values as test data. We could even generate a function for something like, as an argument to the fold function. Since the function is called repeatedly, we have to ensure that the function is closed, by which I mean, the function only produces values that are available in the domain and that the function is defined for that input, the second part is mostly important in functions of two arguments. For example, if we wanted to do \verb+fold_left+ on some arbitrary function \verb+f+, which we would basically define as a lookup map. Say we have the map \verb+[((1,1),2);(((1,2),3);((1,3),4);((1,4),1)]+, say we have the intial value 1, on the list \verb+[1;2;1;2]+, so first we have \verb+f 1 1 = 2+, next we have \verb+f 2 2+, which is not defined, So we either have to take care while defining the function, or add to the map on the fly. 
@@ -233,6 +185,10 @@ In the second case, restricting the size of recursive types. In the tree example
 
 We would also need to be able to identify recursive types, as well as select constructors which are terminals (with no further recursive references).
 
-The last two are not so important, but would be nice features to have. First, the ability to embed PDFs in the \verb+descr.html+ file, not described above, which appears in the exercise enviroment and usually has instructions or information for the student. Since each assignment usually has a PDF created for it, it would be nice to use that in place of \verb+descr.html+. Second, learn-ocaml-autogen requires type annotations in function arguments to create the type string for the test cases, perhaps it would be good to include that functionality to avoid doing more work than we have to.
+Another issue with random sampling is coverage of test cases. For example, if we have a function that acts on lists, we would definitely want to make sure the function acts as expected on any list, including the empty list, but it may not be very likely that one would generate the empty list, especially within the standard ten test cases that the Learn OCaml test library uses. For this, I propose that we move from random sampling functions to something more like a pseudorandom stream. Each time the function is called, it would produce the next element in the stream, but we would populate the stream with at least one of each of a data type's constructors so that each one is tested on at least once. This is somewhat similar to the process by which pieces are determined in the game Tetris: rather than randomly generating a new piece each round, all the pieces are placed in what is referred to as a "bag", and shuffled, so while the order of the pieces in the bag will be random, once the bag has been exhausted, the every possible piece would have been represented once.
 
+The last two are not entirely necessary, but would be nice features to have. First, the ability to embed PDFs in the exercise environment, which appears in the exercise enviroment and usually has instructions or information for the student. Since each assignment usually has a PDF created for it, it would be nice to use that in place of \verb+descr.html+. Second, learn-ocaml-autogen requires type annotations in function arguments to create the type string for the test cases, perhaps it would be good to include that functionality to avoid doing more work than we have to.
+
+\bibliography{references}{}
+\bibliographystyle{plain}
 \end{document}
