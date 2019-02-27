@@ -22,14 +22,8 @@ let () =
       if not (Sys.file_exists dir) then
         Unix.mkdir dir 0o777
     in
-    let _ =
-      if not (Sys.file_exists @@ dir ^ "/pdf") then
-        Unix.mkdir (dir ^ "/pdf") 0o777
-    in
-    let descr_string = "<object data=\"/static/" ^ dir ^ "/pdf/descr.pdf\" width=\"100%\"></object>" in
     let oc = open_out (dir ^ Filename.dir_sep ^ "descr.html") in
     let ppf = Format.formatter_of_out_channel oc in
-    let _ = Format.fprintf ppf "@[%s@]@." (descr_string) in
     let _ = close_out oc in
     (* <object data="resume.pdf" type="application/pdf" width="100%" height="800px"> 
      *)
