@@ -23,7 +23,6 @@ let () =
         Unix.mkdir dir 0o777
     in
     let oc = open_out (dir ^ Filename.dir_sep ^ "descr.html") in
-    let ppf = Format.formatter_of_out_channel oc in
     let _ = close_out oc in
     (* <object data="resume.pdf" type="application/pdf" width="100%" height="800px"> 
      *)
