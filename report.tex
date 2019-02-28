@@ -160,18 +160,19 @@ Finally, in order to fill out the sampler argument for each test case, we procee
 Then we place all the test cases in the template for the test file, which will end up with references to necessary modules for the Learn OCaml grader, the samplers, the test cases, and finally the function which checks the ast and invokes all the test cases. Handling of test generation is contained within \verb+test.ml+.
 
 \section{Conclusion}
-This tool generates all the files necessary to create an exercise for the Learn OCaml platform. While it's lacking in some features, I believe it goes further than the official learn-ocaml-autogen project. As it stands, the tool generates quite a bit of the \verb+test.ml+ file such that it would not be too difficult or time consuming to go in and make small changes if necessary, with the automatic creation of samplers already alleviating much of the exercise writer's work in creating the test file. I believe that this is a strong proof of concept that something like a so-called "one-click" generation tool is quite possible.
+This tool generates all the files necessary to create an exercise for the Learn OCaml platform. While it's lacking in some features, I believe it goes further than the prior learn-ocaml-autogen project. As it stands, the tool generates quite a bit of the \verb+test.ml+ file such that it would not be too difficult or time consuming to go in and make small changes if necessary, with the automatic creation of samplers already alleviating much of the exercise writer's work in creating the test file. I believe that this is a strong proof of concept that something like a so-called "one-click" generation tool is quite possible.
 
 \subsection{Future Work}
 The biggest hurdle is defining some way to restrict values. For example, generating negative numbers when the function we are testing makes use of the square root function, or generating zeros when that argument would be used as divisor. It would be nice if we could disallow certain arguments, or even favor some others, for example, for some function which tests some property, we may only ever generate values for which the property fails, which isn't in itself all bad, but we might like to generate cases for at least one success and one failure.
 
-One way to address this may be to use OCaml's attributes extension to tag certain arguments, for example, something like:
+A possible solution to restricting values may lie within OCaml's attributes. Perhaps we may use an attribute which gives us extra information about certain arguments.
 
 \begin{lstlisting}
-  let foo x[@@restrict positive] y z =
-  ...
-  let w = sqrt(x) in
-  ...
+  let foo x y z =
+    ...
+    let w = sqrt(x) in
+    ...
+  [@@restrict (x, positive)]
 \end{lstlisting}
 
 Another issue with random sampling is coverage of test cases. For example, if we have a function that acts on lists, we would definitely want to make sure the function acts as expected on any list, including the empty list, but it may not be very likely that one would generate the empty list, especially within the standard ten test cases that the Learn OCaml test library uses. For this, I propose that we move from random sampling functions to something more like a pseudorandom stream. Each time the function is called, it would produce the next element in the stream, but we would populate the stream with at least one of each of a data type's constructors so that each one is tested on at least once. This is somewhat similar to the process by which pieces are determined in the game Tetris: rather than randomly generating a new piece each round, all the pieces are placed in what is referred to as a "bag", and shuffled, so while the order of the pieces in the bag will be random, once the bag has been exhausted, the every possible piece would have been represented once.
