@@ -100,3 +100,34 @@ let rec map f l =
   end
 ```
 to `solution.ml`
+
+### `Function_sampler` exception
+Attempting to generate a sampler for a function type will raise a `Function_sampler` exception, which also contains information on the kinds of functions it expects. Let's take `map : ('a -> 'b) -> 'a list -> 'b list` for example (but has been instantiated to `map : (string -> bool) -> string list -> bool list`)
+
+```OCaml
+let exercise_map =
+  Section
+    ([Text "Function:"; Code "map"],
+      (test_function_2_against_solution
+         [%ty : (string -> bool) -> string list -> bool list] "map" ~gen:10
+         ~sampler:(fun ()  ->
+                     (((fun ()  ->
+                          raise
+                            (Function_sampler
+                               "Please provide functions of type string -> bool"))
+                         ()), (sample_list (sample_string ) ()))) []))
+```
+We must replace the sampler argument with a sampler for the appropriate functions, which we must write ourselves, so now we need a list of functions which we can use for our test case. In the following example, I've only written one, which takes a string and compares its length to zero, but it demonstrates the general idea of what one should do
+```OCaml
+ let exercise_map =
+  Section
+    ([Text "Function:"; Code "map"],
+      (test_function_2_against_solution
+         [%ty : (string -> bool) -> string list -> bool list] "map" ~gen:10
+         ~sampler:
+         (fun () -> ((sample_alternatively 
+                      [(fun () -> (fun x -> String.length x = 0))]) () , 
+                     (sample_list sample_string ())))
+         []))
+```
+Samplers are of type `unit -> 'a`, so we must wrap the function in another function which takes unit, and then to allow for multiple functions to be used for testing, we pass it in a list to `sample_alternatively`, which will randomly choose one of the functions for testing.
