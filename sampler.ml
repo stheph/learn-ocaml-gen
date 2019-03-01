@@ -343,7 +343,8 @@ module Typed = struct
 
     let argtypes' = List.map get_sampler' argtypes in
     let expr = Exp.tuple argtypes' in
-    (fn_sig,  [%expr fun () -> [%e expr]])
+  (fn_sig,  [%expr fun () -> [%e expr]])
+    (* (fn_sig, expr) *)
 
   and get_sampler' type_expr =
     begin match type_expr.desc with
@@ -360,7 +361,8 @@ module Typed = struct
     | Ttuple ts ->
        let ts_samplers = List.map get_sampler' ts in
        let tup = Exp.tuple ts_samplers in
-       [%expr (fun () -> [%e tup]) ()]
+    (* [%expr (fun () -> [%e tup]) ()] *)
+       tup
     | Tconstr (p, ts, _) ->
        let name = Path.name p in
        let sampler_name = "sample_" ^ name in
@@ -373,7 +375,8 @@ module Typed = struct
     begin match type_expr.desc with
     | Ttuple ts ->
        let tup = Exp.tuple @@ List.map get_sampler' ts in
-       [%expr fun () -> [%e tup]]
+    (* [%expr fun () -> [%e tup]] *)
+       tup
     | Tconstr (p, ts, _) ->
        let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
        let main_sampler = exp_ident @@ "sample_" ^ (Path.name p) in
