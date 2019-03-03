@@ -5,7 +5,25 @@ open Ast_helper
 open Asttypes
 open Longident
 
-exception Unsupported_operation of string
+exception UnsupportedType of Location.t
+exception UnsupportedParameterType of Location.t
+exception UnsupportedTypeDeclaration of Location.t
+exception UnsupportedTypeExpr of Types.type_expr
+                               
+let () =
+  Printexc.register_printer
+    (fun x ->
+      begin match x with
+      | UnsupportedType loc ->
+         Some (Format.asprintf "@.%aThis type is not supported" Location.print loc)
+      | UnsupportedParameterType loc ->
+         Some (Format.asprintf "@.%aThis type parameter is not supported" Location.print loc)
+      | UnsupportedTypeDeclaration loc ->
+         Some (Format.asprintf "@.%aThis type declaration is not supported" Location.print loc)
+      | UnsupportedTypeExpr type_expr ->
+         Some (Format.asprintf "@.%aCannot create sampler for type %a" Printtyp.type_expr type_expr)
+      end
+    )
 
 let loc = Location.none
 
@@ -53,7 +71,8 @@ module Untyped = struct
     let { ptype_name = { txt = name ; _ }
         ; ptype_params
         ; ptype_kind
-        ; ptype_manifest ; _
+        ; ptype_manifest
+        ; ptype_loc ; _
         } = type_decl in
     let sampler_pattern = Pat.var { txt = "sample_" ^ name ; loc } in
 
@@ -63,7 +82,7 @@ module Untyped = struct
         | Ptyp_var name -> "sample_" ^ name
         | Ptyp_constr ({ txt = Lident name ; _ }, _) ->
            "sample_" ^ name
-        | _ -> raise (Unsupported_operation "sampler_params")
+        | _ -> raise (UnsupportedParameterType ctype.ptyp_loc)
         end
       in
       let params = List.map sampler_name (List.map (fun x -> fst x) ptype_params) in
@@ -94,7 +113,7 @@ module Untyped = struct
           (* ex. type t = int; type t = int list; type 'a t = 'a list *)
           let expr = call_sampler manifest in
           Vb.mk sampler_pattern @@ sampler_params [%expr fun () -> [%e expr]]
-       | _ -> raise (Unsupported_operation "make_sampler :: ptype_abstract, some manifest")
+       | _ -> raise (UnsupportedType manifest.ptyp_loc)
        end
     | Ptype_variant constructors, None ->
        (* type t = A | B | C | ... *)
@@ -139,7 +158,7 @@ module Untyped = struct
         *     Vb.mk sampler_pattern @@ sampler_params ([%expr fun ~size:10 () -> [%e expr]])
         *   end
         * else *) Vb.mk sampler_pattern @@ sampler_params ([%expr fun () -> [%e expr]])
-    | _ -> raise (Unsupported_operation "make_sampler")
+    | _ -> raise (UnsupportedTypeDeclaration ptype_loc)
     end
 
   (* Returns an expression of the form "sample_[type] ()" *)
@@ -182,14 +201,14 @@ module Untyped = struct
        (* let args = args@[Nolabel, exp_ident "()"] in *)
        let main_sampler = exp_ident @@ "sample_" ^ name in
        Exp.apply main_sampler args;
-    | _ -> raise (Unsupported_operation "pass_sampler")
+    | _ -> raise (UnsupportedType ctype.ptyp_loc)
     end
 
   and ctype_string ctype =
     begin match ctype.ptyp_desc with
     | Ptyp_var name -> name
     | Ptyp_constr ({ txt = Lident name ; _ }, _) -> name
-    | _ -> raise (Unsupported_operation "ctype_string")
+    | _ -> raise (UnsupportedType ctype.ptyp_loc)
     end
 
   (* Makes a function that constructs a value *)
@@ -276,8 +295,6 @@ module Typed = struct
   open Types
   open Longident
 
-  exception No_choice
-         
   (* The typed module should take a type_expr and return the appropriate sampler *)
   (* or create one if it doesn't exist (ex. functions which take tuple arguments) *)
 
@@ -295,7 +312,7 @@ module Typed = struct
       let
         choice = Random.int (List.length l)
       in
-      List.nth l choice
+        List.nth l choice
   
   let rec collect_vars type_expr =
     begin match type_expr.desc with
@@ -343,7 +360,7 @@ module Typed = struct
 
     let argtypes' = List.map get_sampler' argtypes in
     let expr = Exp.tuple argtypes' in
-  (fn_sig,  [%expr fun () -> [%e expr]])
+    (fn_sig,  [%expr fun () -> [%e expr]])
     (* (fn_sig, expr) *)
 
   and get_sampler' type_expr =
@@ -368,7 +385,7 @@ module Typed = struct
        let sampler_name = "sample_" ^ name in
        let sampler_args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
        Exp.apply (exp_ident sampler_name) (sampler_args@[Nolabel, exp_ident "()"])
-    | _ -> raise (Unsupported_operation "get_sampler'")
+    | _ -> raise (UnsupportedTypeExpr type_expr)
     end
 
   and pass_sampler type_expr =
@@ -381,7 +398,7 @@ module Typed = struct
        let args = List.map (fun x -> (Nolabel, pass_sampler x)) ts in
        let main_sampler = exp_ident @@ "sample_" ^ (Path.name p) in
        Exp.apply main_sampler args
-    | _ -> raise (Unsupported_operation "Typed.pass_sampler")
+    | _ -> raise (UnsupportedTypeExpr type_expr)
     end
 
   end
