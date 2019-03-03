@@ -9,7 +9,7 @@ exception UnsupportedType of Location.t
 exception UnsupportedParameterType of Location.t
 exception UnsupportedTypeDeclaration of Location.t
 exception UnsupportedTypeExpr of Types.type_expr
-                               
+exception UnexpectedSamplerExpression of expression                               
 let () =
   Printexc.register_printer
     (fun x ->
@@ -21,7 +21,10 @@ let () =
       | UnsupportedTypeDeclaration loc ->
          Some (Format.asprintf "@.%aThis type declaration is not supported" Location.print loc)
       | UnsupportedTypeExpr type_expr ->
-         Some (Format.asprintf "@.%aCannot create sampler for type %a" Printtyp.type_expr type_expr)
+         Some (Format.asprintf "@.Cannot create sampler for type %a" Printtyp.type_expr type_expr)
+      | UnexpectedSamplerExpression expr ->
+         Some (Format.asprintf "@.Did not expect sampler expression %a" Pprintast.expression expr)
+      | _ -> None
       end
     )
 
@@ -166,11 +169,13 @@ module Untyped = struct
     begin match ctype.ptyp_desc with
     | Ptyp_constr ({ txt = Lident name ; _ }, ts) ->
        let sampler_name =
-         begin match pass_sampler ctype with
+         let sampler_expr = pass_sampler ctype in
+         begin match sampler_expr with
          | {pexp_desc = Pexp_ident { txt = Lident sampler_name} } ->
             sampler_name
          | {pexp_desc = Pexp_apply ({pexp_desc = Pexp_ident { txt = Lident sampler_name }},_)} ->
             sampler_name
+         | _ -> raise (UnexpectedSamplerExpression (sampler_expr))
          end
        in
        let args =
@@ -294,6 +299,8 @@ module Typed = struct
   open Ast_helper
   open Types
   open Longident
+
+  exception No_choice
 
   (* The typed module should take a type_expr and return the appropriate sampler *)
   (* or create one if it doesn't exist (ex. functions which take tuple arguments) *)
