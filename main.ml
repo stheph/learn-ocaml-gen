@@ -1,11 +1,11 @@
 let () =
-  let _ = Compmisc.init_path false in
-  let env = Compmisc.initial_env () in
-
-  let src_file = Array.get Sys.argv 1 in
-  let dot_index = String.rindex src_file '.' in
-  let dir = String.sub src_file 0 dot_index in
   try
+    let _ = Compmisc.init_path false in
+    let env = Compmisc.initial_env () in
+
+    let src_file = Array.get Sys.argv 1 in
+    let dot_index = String.rindex src_file '.' in
+    let dir = String.sub src_file 0 dot_index in
     let parse_tree =
       Pparse.parse_implementation
         Format.std_formatter
@@ -14,7 +14,6 @@ let () =
     in
     let typing_tree = Preliminaries.strip parse_tree in
     let typing_tree = Exercise.strip typing_tree in
-  (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure typing_tree; *)
     let (typed_tree,_,_) =
       Typemod.type_structure env typing_tree Location.none
     in
@@ -24,13 +23,7 @@ let () =
     in
     let oc = open_out (dir ^ Filename.dir_sep ^ "descr.html") in
     let _ = close_out oc in
-    (* <object data="resume.pdf" type="application/pdf" width="100%" height="800px"> 
-     *)
-    (* let pre_ex_tree = Preliminaries.run parse_tree in *)
-    (* * let pre_ex_tree = Preliminaries.Prelude.run parse_tree in *\) *)
-    (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure pre_ex_tree; *)
     let prelim_tree = Preliminaries.run parse_tree in
-    (* Format.fprintf (Format.std_formatter) "@[%a@]@." Pprintast.structure prelim_tree; *)
     Preliminaries.Meta.out_file dir;
     Preliminaries.Prelude.out_file dir;
     Preliminaries.Prepare.out_file dir;

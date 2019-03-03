@@ -5,8 +5,6 @@ open Location
 open Longident
 open Types
 
-exception Not_implemented of string
-            
 let loc = Location.none
 
 let (output_file : structure ref) = ref []

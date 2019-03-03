@@ -7,7 +7,7 @@ open Ast_mapper
 open Asttypes
 open Parsetree
 
-exception Payload_multiple_structures
+exception Payload_multiple_structures of Location.t
 exception Not_metadata of Location.t * string
 exception Bad_value_for_metadata of Location.t * string
 exception Metadata_conversion_failure
@@ -16,21 +16,21 @@ let loc = Location.none
 
 let () =
   Printexc.register_printer
-    (fun x -> begin match x with
-              | Payload_multiple_structures loc ->
-                 Some (Format.asprintf "@.%aDid not expect multiple structures in extension payload" Location.print loc)
-              | Not_metadata (loc, key) ->
-                 Some (Format.asprintf "@.%a\"%s\" is not a valid metadata key" Location.print loc key)
-              | Bad_value_for_metadata (loc, key) ->
-                 Some (Format.asprintf "@.%aBad value for metadata key \"%s\"" Location.print loc key)
-              | Metadata_conversion_failure ->
-                 Some (Format.asprintf "@.An unknown error has caused metadata conversion to fail")
-              | _ -> None
-              end
+    (fun x ->
+      begin match x with
+      | Payload_multiple_structures loc ->
+         Some (Format.asprintf "@.%aDid not expect multiple structures in extension payload" Location.print loc)
+      | Not_metadata (loc, key) ->
+         Some (Format.asprintf "@.%a\"%s\" is not a valid metadata key" Location.print loc key)
+      | Bad_value_for_metadata (loc, key) ->
+         Some (Format.asprintf "@.%aBad value for metadata key \"%s\"" Location.print loc key)
+      | Metadata_conversion_failure ->
+         Some (Format.asprintf "@.An unknown error has caused metadata conversion to fail")
+      | _ -> None
+      end
     )
             
 let rec general_structure_mapper ext acc strip mapper structure =
-  (* print_string (Printf.sprintf "Running %s (%s) mapper\n" ext (string_of_bool strip));  *)
   begin match structure with
   | [] -> []
   | hd::tl ->
@@ -38,7 +38,6 @@ let rec general_structure_mapper ext acc strip mapper structure =
      | { pstr_desc =
            Pstr_extension
              (({ txt = ext' ; _ }, PStr structure'), _) ; pstr_loc } when ext = ext' ->
-        (* print_string (Printf.sprintf "Found %s match\n" ext);  *)
         begin match structure' with
         | [] -> []
         | [x] ->
@@ -48,24 +47,13 @@ let rec general_structure_mapper ext acc strip mapper structure =
              end
            else
              begin
-             (* begin match x.pstr_desc with
-              * | Pstr_value _ -> *)
                 (* Preserve order *)
                 acc := !acc @ [x];
                 general_structure_mapper ext acc strip mapper tl
-             (* | _ -> raise
-              *          (Not_implemented
-              *             ("structure_mapper", "Unexpected structure_item_desc in payload"))
-              * end *)
              end
         | l -> raise
                  (Payload_multiple_structures pstr_loc)
         end
-     (* | { pstr_desc =
-      *       Pstr_extension
-      *         (({ txt = ext' ; _ }, PStr structure'), _) ; _ } ->
-      *    print_string (Printf.sprintf "Running %s mapper : Found %s\n" ext ext');
-      *      default_mapper.structure_item mapper hd :: general_structure_mapper ext acc strip mapper tl *)
      | x -> default_mapper.structure_item mapper hd :: general_structure_mapper ext acc strip mapper tl
      end
   end
@@ -127,13 +115,9 @@ module Meta = struct
   let strip tree =
     stripper.structure stripper tree
 
-  (* TODO Hide after debugging?  *)
-  (* let out_tree () = !out *)
-
   (* Printing out meta data as a json file: meta.json *)
   let (out_meta : meta_data ref) = ref default
 
-  (* TODO Replace try-with with pattern matching *)
   let value_binding_iterator iterator value_binding =
     begin match value_binding.pvb_pat with
     | { ppat_desc = Ppat_var { txt = "learnocaml_version" } ; ppat_loc ; _ } ->

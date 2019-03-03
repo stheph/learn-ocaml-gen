@@ -1,7 +1,7 @@
 open Parsetree
 
 exception Conversion_failure of string
-       
+
 let rec list_of_ast conv expr =
   begin match expr with
   | [%expr []] -> []
@@ -55,7 +55,6 @@ let rec conv_pair fst snd expr =
   | [%expr ([%e? p1], [%e? p2])] -> (fst p1, snd p2)
   | _ -> raise (Conversion_failure "expr is not a pair")
   end
-
 
 let int_list_of_ast = list_of_ast conv_int
 

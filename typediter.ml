@@ -2,11 +2,6 @@ open Typedtree
 open TypedtreeIter
 open Types
 
-exception Too_many_args
-
-let repr = Btype.repr
-
-            
 type function_info =
   { name : string;
     fn_sig : Types.type_expr;
@@ -55,7 +50,7 @@ module CollectFnInfo = struct
                             vb_expr = expr }]) } ->
        let name = Ident.name id in
        let fn_sig = typ in
-       let argtypes = List.map repr @@ arg_types expr in
+       let argtypes = arg_types expr in
        let argcount = List.length argtypes in
        let fn_info = { name = name ; fn_sig = fn_sig ; argtypes = argtypes ; argcount = argcount }
        in fn_map := FnMap.(add name fn_info !fn_map)
