@@ -9,7 +9,7 @@ open Parsetree
 
 exception Payload_multiple_structures of Location.t
 exception Not_metadata of Location.t * string
-exception Bad_value_for_metadata of Location.t * string
+exception Bad_value_for_metadata of Location.t * string * string
 exception Metadata_conversion_failure
 
 let loc = Location.none
@@ -22,8 +22,8 @@ let () =
          Some (Format.asprintf "@.%aDid not expect multiple structures in extension payload" Location.print loc)
       | Not_metadata (loc, key) ->
          Some (Format.asprintf "@.%a\"%s\" is not a valid metadata key" Location.print loc key)
-      | Bad_value_for_metadata (loc, key) ->
-         Some (Format.asprintf "@.%aBad value for metadata key \"%s\"" Location.print loc key)
+      | Bad_value_for_metadata (loc, key, expect) ->
+         Some (Format.asprintf "@.%aBad value for metadata key \"%s\" (%s)" Location.print loc key expect)
       | Metadata_conversion_failure ->
          Some (Format.asprintf "@.An unknown error has caused metadata conversion to fail")
       | _ -> None
@@ -125,35 +125,35 @@ module Meta = struct
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
             out_meta := {!out_meta with learnocaml_version = value }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "learnocaml_version"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "learnocaml_version", "expected int"))
        end
     | { ppat_desc = Ppat_var { txt = "kind" } ; ppat_loc ; _ } ->
        begin
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ } ->
             out_meta := {!out_meta with kind = Some value }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "kind"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "kind", "expected string"))
        end
     | { ppat_desc = Ppat_var { txt = "stars" } ; ppat_loc ; _ } ->
        begin
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
             out_meta := {!out_meta with stars = Some (int_of_string value) }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "stars"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "stars", "expected int"))
        end
     | { ppat_desc = Ppat_var { txt = "title" } ; ppat_loc ; _ } ->
        begin
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ } ->
             out_meta := {!out_meta with title = Some value }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "title"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "title", "expected string"))
        end
     | { ppat_desc = Ppat_var { txt = "identifier" } ; ppat_loc ; _ } ->
        begin
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
             out_meta := {!out_meta with identifier = value }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "identifier"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "identifier", "expected int"))
        end
     (* | { ppat_desc = Ppat_var { txt = "author" } ; _ } ->
      *    begin
@@ -171,7 +171,7 @@ module Meta = struct
            let list = Utils.string_pair_list_of_ast expr in
            out_meta := {!out_meta with authors = Some list }
                          (* TODO Error handling that reports errors in authors list *)
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "authors"))
+         with Utils.Conversion_failure (loc, expect) -> raise (Bad_value_for_metadata (loc, "authors", expect))
        end
     | { ppat_desc = Ppat_var { txt = "focus" } ; ppat_loc ; _ } ->
        begin
@@ -179,7 +179,7 @@ module Meta = struct
            let expr = value_binding.pvb_expr in
            let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with focus = Some list }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "focus"))
+         with Utils.Conversion_failure (loc, expect) -> raise (Bad_value_for_metadata (loc, "focus", expect))
        end
     | { ppat_desc = Ppat_var { txt = "requirements" } ; ppat_loc ; _ } ->
        begin
@@ -187,7 +187,7 @@ module Meta = struct
            let expr = value_binding.pvb_expr in
            let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with requirements = Some list }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "requirements"))
+         with Utils.Conversion_failure (loc, expect) -> raise (Bad_value_for_metadata (loc, "requirements", expect))
        end
     | { ppat_desc = Ppat_var { txt = "foward_exercises" } ; ppat_loc ; _ } ->
        begin
@@ -195,7 +195,7 @@ module Meta = struct
            let expr = value_binding.pvb_expr in
            let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with forward_exercises = Some list }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "forward_exercises"))
+         with Utils.Conversion_failure (loc, expect) -> raise (Bad_value_for_metadata (loc, "forward_exercises", expect))
        end
     | { ppat_desc = Ppat_var { txt = "backward_exercises" } ; ppat_loc ; _ } ->
        begin
@@ -203,14 +203,14 @@ module Meta = struct
            let expr = value_binding.pvb_expr in
            let list = Utils.string_list_of_ast expr in
            out_meta := {!out_meta with backward_exercises = Some list }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "backward_exercises"))
+         with Utils.Conversion_failure (loc, expect) -> raise (Bad_value_for_metadata (loc, "backward_exercises", expect))
        end
     | { ppat_desc = Ppat_var { txt = "max_score" } ; ppat_loc ; _ } ->
        begin
          match value_binding.pvb_expr with
          | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
             out_meta := {!out_meta with max_score = Some (int_of_string value) }
-         | _ -> raise (Bad_value_for_metadata (ppat_loc, "max_score"))
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "max_score", "expected int"))
        end
     | { ppat_desc = Ppat_var { txt = label } ; ppat_loc ; _ } ->
        raise (Not_metadata (ppat_loc, label))
