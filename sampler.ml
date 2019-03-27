@@ -312,6 +312,8 @@ module Typed = struct
       Predef.type_string
     ]
 
+  let _ = Random.self_init ()
+    
   let choose l =
     if List.length l = 0
     then raise No_choice
