@@ -10,7 +10,7 @@ Using Ocaml 4.05, with the following packages from OPAM:
 * ocaml-compiler-libs
 * ppx_deriving
 * ppx_deriving_yojson
-* ppx_lib
+* ppxlib
 * yojson
 
 In the project folder, run
