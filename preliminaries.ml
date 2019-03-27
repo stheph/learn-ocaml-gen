@@ -122,48 +122,38 @@ module Meta = struct
     begin match value_binding.pvb_pat with
     | { ppat_desc = Ppat_var { txt = "learnocaml_version" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with learnocaml_version = value }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "learnocaml_version"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
+            out_meta := {!out_meta with learnocaml_version = value }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "learnocaml_version"))
        end
     | { ppat_desc = Ppat_var { txt = "kind" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with kind = Some value }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "kind"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ } ->
+            out_meta := {!out_meta with kind = Some value }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "kind"))
        end
     | { ppat_desc = Ppat_var { txt = "stars" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with stars = Some (int_of_string value) }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "stars"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
+            out_meta := {!out_meta with stars = Some (int_of_string value) }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "stars"))
        end
     | { ppat_desc = Ppat_var { txt = "title" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with title = Some value }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "title"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_string (value, None)) ; _ } ->
+            out_meta := {!out_meta with title = Some value }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "title"))
        end
     | { ppat_desc = Ppat_var { txt = "identifier" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with identifier = value }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "identifier"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
+            out_meta := {!out_meta with identifier = value }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "identifier"))
        end
     (* | { ppat_desc = Ppat_var { txt = "author" } ; _ } ->
      *    begin
@@ -217,12 +207,10 @@ module Meta = struct
        end
     | { ppat_desc = Ppat_var { txt = "max_score" } ; ppat_loc ; _ } ->
        begin
-         try
-           let { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ }
-             = value_binding.pvb_expr
-           in
-           out_meta := {!out_meta with max_score = Some (int_of_string value) }
-         with Match_failure _ -> raise (Bad_value_for_metadata (ppat_loc, "max_score"))
+         match value_binding.pvb_expr with
+         | { pexp_desc = Pexp_constant (Pconst_integer (value, None)) ; _ } ->
+            out_meta := {!out_meta with max_score = Some (int_of_string value) }
+         | _ -> raise (Bad_value_for_metadata (ppat_loc, "max_score"))
        end
     | { ppat_desc = Ppat_var { txt = label } ; ppat_loc ; _ } ->
        raise (Not_metadata (ppat_loc, label))
